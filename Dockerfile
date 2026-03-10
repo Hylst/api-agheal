@@ -6,6 +6,9 @@ RUN a2enmod rewrite
 # Installer l'extension PDO MySQL indispensable pour la base de données
 RUN docker-php-ext-install pdo pdo_mysql
 
+# Installer Composer (gestionnaire de dépendances PHP)
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
 # Changer la racine (DocumentRoot) du serveur vers le dossier /public
 # C'est la recommandation standard pour sécuriser les fichiers sources
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public
@@ -15,6 +18,10 @@ RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 
 # Copier tout le code source dans le conteneur
 COPY . /var/www/html/
+
+# Installer les dépendances via Composer (sans les fichiers de dev)
+# Cela va créer le dossier 'vendor' automatiquement sur le serveur
+RUN composer install --no-dev --optimize-autoloader
 
 # Donner les bonnes permissions
 RUN chown -R www-data:www-data /var/www/html
