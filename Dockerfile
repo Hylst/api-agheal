@@ -3,8 +3,15 @@ FROM php:8.1-apache
 # Activer le mod_rewrite d'Apache pour le routeur PHP (public/index.php)
 RUN a2enmod rewrite
 
-# Installer l'extension PDO MySQL indispensable pour la base de données
-RUN docker-php-ext-install pdo pdo_mysql
+# Installer les dépendances système nécessaires pour Composer et les extensions PHP
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    libzip-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installer l'extension PDO MySQL et ZIP (indispensable pour la base de données et Composer)
+RUN docker-php-ext-install pdo pdo_mysql zip
 
 # Installer Composer (gestionnaire de dépendances PHP)
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
