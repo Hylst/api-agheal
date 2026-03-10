@@ -1,0 +1,29 @@
+# Fichiers de configuration sensibles
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Dépendances Composer
+/vendor/
+
+# Logs et temporaires
+*.log
+/tmp/
+/cache/
+
+# Fichiers OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sauvegarde de base de données locale (ne pas envoyer sur GitHub)
+/mysql/
+agheal.sql
+agheal_backup.sql

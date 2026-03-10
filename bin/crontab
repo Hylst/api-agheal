@@ -1,0 +1,4 @@
+# Rappels de séance tous les jours à 8h00
+0 8 * * * /usr/local/bin/php /app/bin/send-reminders.php >> /var/log/cron.log 2>&1
+
+# Note: On peut ajouter d'autres tâches ici (ex: cleanup de sessions expirées)

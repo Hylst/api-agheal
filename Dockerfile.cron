@@ -1,0 +1,28 @@
+# Dockerfile pour le Cron de l'API AGHeal
+FROM php:8.2-cli
+
+# Installer pdo_mysql pour les scripts
+RUN apt-get update && apt-get install -y \
+    cron \
+    libpng-dev \
+    && docker-php-ext-install pdo pdo_mysql mysqli
+
+# Installer Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY . .
+
+# Installer les dépendances
+RUN composer install --no-dev --optimize-autoloader
+
+# Installer la crontab
+COPY bin/crontab /etc/cron.d/agheal-cron
+RUN chmod 0644 /etc/cron.d/agheal-cron \
+    && crontab /etc/cron.d/agheal-cron
+
+# Créer le fichier de log
+RUN touch /var/log/cron.log
+
+# Lancer cron au premier plan
+CMD ["cron", "-f"]
