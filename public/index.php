@@ -30,14 +30,15 @@ $allowedOrigins = [
     'http://localhost:5174',
     'http://localhost:8080',
     'http://localhost:3000',
+    'https://agheal.hylst.fr' // URL de production
 ];
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($origin, $allowedOrigins) || empty($origin)) {
-    header("Access-Control-Allow-Origin: " . ($origin ?: 'http://localhost:5173'));
+    header("Access-Control-Allow-Origin: " . ($origin ?: '*'));
 } else {
-    $appFrontendUrl = $_ENV['FRONTEND_URL'] ?? '';
-    if ($appFrontendUrl && $origin === $appFrontendUrl) {
+    $appFrontendUrl = getenv('FRONTEND_URL') ?: ($_ENV['FRONTEND_URL'] ?? '');
+    if ($appFrontendUrl && rtrim($origin, '/') === rtrim($appFrontendUrl, '/')) {
         header("Access-Control-Allow-Origin: $origin");
     }
 }
