@@ -2,3 +2,5 @@
 0 8 * * * /usr/local/bin/php /app/bin/send-reminders.php >> /var/log/cron.log 2>&1
 
 # Note: On peut ajouter d'autres tâches ici (ex: cleanup de sessions expirées)
+# Vérification des abonnements tous les jours à 9h00
+0 9 * * * /usr/local/bin/php /app/bin/check-subscriptions.php >> /var/log/cron.log 2>&1

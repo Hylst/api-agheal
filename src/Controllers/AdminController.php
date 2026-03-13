@@ -56,7 +56,8 @@ class AdminController
      */
     public function updateStatus(string $userId): void
     {
-        Auth::requireRole(['admin']);
+        $payload = Auth::requireRole(['admin']);
+        $currentUserId = $payload['sub'] ?? null;
 
         $data = json_decode(file_get_contents('php://input'), true);
         $status = $data['statut_compte'] ?? null;
@@ -67,11 +68,23 @@ class AdminController
             return;
         }
 
+        // Sécurité critique : Empêcher un admin de se bloquer lui-même
+        if ($status === 'bloque' && $userId === $currentUserId) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Vous ne pouvez pas bloquer votre propre compte administrateur']);
+            return;
+        }
+
         $db = Database::getInstance();
         $db->query(
             "UPDATE profiles SET statut_compte = ? WHERE id = ?",
             [$status, $userId]
         );
+
+        $this->logAdminAction($currentUserId, 'update_user_status', [
+            'target_user_id' => $userId,
+            'new_status' => $status
+        ]);
 
         http_response_code(200);
         echo json_encode(['message' => 'Statut mis à jour', 'statut_compte' => $status]);
@@ -83,7 +96,8 @@ class AdminController
      */
     public function addRole(string $userId): void
     {
-        Auth::requireRole(['admin']);
+        $payload = Auth::requireRole(['admin']);
+        $currentUserId = $payload['sub'] ?? null;
 
         $data = json_decode(file_get_contents('php://input'), true);
         $role = $data['role'] ?? null;
@@ -113,6 +127,11 @@ class AdminController
             [$userId, $role]
         );
 
+        $this->logAdminAction($currentUserId, 'add_user_role', [
+            'target_user_id' => $userId,
+            'role' => $role
+        ]);
+
         http_response_code(201);
         echo json_encode(['message' => 'Rôle ajouté', 'role' => $role]);
     }
@@ -123,11 +142,26 @@ class AdminController
      */
     public function removeRole(string $userId, string $role): void
     {
-        Auth::requireRole(['admin']);
+        $payload = Auth::requireRole(['admin']);
+        $currentUserId = $payload['sub'] ?? null;
 
         if (!in_array($role, ['admin', 'coach', 'adherent'])) {
             http_response_code(422);
             echo json_encode(['error' => 'Rôle invalide']);
+            return;
+        }
+
+        // Sécurité métier : On ne peut pas retirer le rôle de base 'adherent'
+        if ($role === 'adherent') {
+            http_response_code(422);
+            echo json_encode(['error' => 'Le rôle "adherent" est obligatoire et ne peut être retiré']);
+            return;
+        }
+
+        // Sécurité critique : Empêcher un admin de se retirer son propre rôle admin (Lockout prevention)
+        if ($role === 'admin' && $userId === $currentUserId) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Vous ne pouvez pas vous retirer votre propre rôle administrateur']);
             return;
         }
 
@@ -137,7 +171,29 @@ class AdminController
             [$userId, $role]
         );
 
+        $this->logAdminAction($currentUserId, 'remove_user_role', [
+            'target_user_id' => $userId,
+            'role' => $role
+        ]);
+
         http_response_code(200);
         echo json_encode(['message' => 'Rôle retiré']);
+    }
+
+    /**
+     * Enregistre une action administrative dans les logs
+     */
+    private function logAdminAction(?string $userId, string $action, array $details): void
+    {
+        try {
+            $db = Database::getInstance();
+            $db->query(
+                "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+                [$userId, $action, json_encode($details)]
+            );
+        } catch (\Exception $e) {
+            // On ne bloque pas l'action principale si le log échoue
+            error_log("Failed to log admin action: " . $e->getMessage());
+        }
     }
 }

@@ -24,6 +24,6 @@ Thumbs.db
 *.sublime-workspace
 
 # Sauvegarde de base de données locale (ne pas envoyer sur GitHub)
-/mysql/
+# /mysql/
 agheal.sql
 agheal_backup.sql

@@ -23,6 +23,11 @@ Ce projet est configuré pour être déployé facilement via **Docker** ou **Coo
 - Les mots de passe sont hashés via `bcrypt`.
 - L'authentification est sécurisée par des tokens **JWT** (JSON Web Tokens).
 
+## 🤖 Automatisation
+Le backend inclut des scripts pilotés par **cron** (configurés dans `bin/crontab`) :
+- `send-reminders.php` : Envoi de rappels de séance la veille.
+- `check-subscriptions.php` : Envoi de rappels de renouvellement (J-7) et mise à jour automatique des statuts expirés.
+
 ## 🚀 Installation locale
 1. Clonez le dépôt.
 2. Configurez votre fichier `.env` à partir de `.env.example`.

@@ -91,6 +91,15 @@ class ClientController
             $values
         );
 
+        // Historisation si le statut passe à 'a_jour'
+        if (isset($data['payment_status']) && $data['payment_status'] === 'a_jour') {
+            $currentUser = Auth::requireAuth();
+            $db->query(
+                "INSERT INTO payments_history (user_id, payment_date, renewal_date, received_by) VALUES (?, CURRENT_DATE, ?, ?)",
+                [$userId, $data['renewal_date'] ?? null, $currentUser['sub']]
+            );
+        }
+
         http_response_code(200);
         echo json_encode(['message' => 'Client mis à jour']);
     }
