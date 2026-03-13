@@ -58,7 +58,7 @@ class Database
     /**
      * Retourne l'ID du dernier insert.
      */
-    public function lastInsertId(): string|false
+    public function lastInsertId(): string|bool
     {
         return self::$pdo->lastInsertId();
     }
