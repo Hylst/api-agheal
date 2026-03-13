@@ -85,7 +85,7 @@ class RegistrationController
 
         // Vérifie que la séance existe et est publiée
         $stmt = $db->query(
-            "SELECT id, capacity FROM sessions WHERE id = ? AND status = 'published'",
+            "SELECT id, capacity, max_people, max_people_blocking FROM sessions WHERE id = ? AND status = 'published'",
             [$sessionId]
         );
         $session = $stmt->fetch();
@@ -107,16 +107,20 @@ class RegistrationController
             return;
         }
 
-        // Vérifie la capacité si définie
-        if ($session['capacity'] !== null) {
+        // Détermine la limite de participants (priorité à max_people, fallback capacity)
+        $limit = $session['max_people'] ?? $session['capacity'];
+        $isBlocking = (bool)($session['max_people_blocking'] ?? 1); // Par défaut on bloque
+
+        // Vérifie la capacité si une limite est définie ET qu'elle est bloquante
+        if ($limit !== null && $isBlocking) {
             $stmt = $db->query(
                 "SELECT COUNT(*) as cnt FROM registrations WHERE session_id = ?",
                 [$sessionId]
             );
             $count = $stmt->fetch();
-            if ($count['cnt'] >= $session['capacity']) {
+            if ($count['cnt'] >= $limit) {
                 http_response_code(409);
-                echo json_encode(['error' => 'Cette séance est complète']);
+                echo json_encode(['error' => 'Cette séance est complète (limite atteinte)']);
                 return;
             }
         }

@@ -131,8 +131,8 @@ class SessionController
                 }
 
                 $db->query(
-                    "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, status, description, created_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                    "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, min_people, max_people, min_people_blocking, max_people_blocking, equipment_coach, equipment_clients, equipment_location, status, description, created_at, created_by)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
                     [
                         $session['title'],
                         $session['date'],
@@ -140,9 +140,17 @@ class SessionController
                         $session['end_time'],
                         $session['type_id']        ?? null,
                         $session['location_id']    ?? null,
-                        $session['capacity']       ?? null,
+                        $session['max_people']     ?? null, // Map capacity to max_people temporarily
+                        $session['min_people']     ?? 1,
+                        $session['max_people']     ?? 10,
+                        isset($session['min_people_blocking']) ? (int)$session['min_people_blocking'] : 1,
+                        isset($session['max_people_blocking']) ? (int)$session['max_people_blocking'] : 1,
+                        $session['equipment_coach']    ?? null,
+                        $session['equipment_clients']  ?? null,
+                        $session['equipment_location'] ?? null,
                         $session['status']         ?? 'published',
                         $session['description']    ?? null,
+                        Auth::getUserId()
                     ]
                 );
             }
@@ -166,7 +174,17 @@ class SessionController
 
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $allowed = ['title', 'date', 'start_time', 'end_time', 'type_id', 'location_id', 'capacity', 'status', 'description'];
+        // Map capacity to max_people temporarily
+        if (isset($data['capacity']) && !isset($data['max_people'])) {
+            $data['max_people'] = $data['capacity'];
+        }
+
+        $allowed = [
+            'title', 'date', 'start_time', 'end_time', 'type_id', 'location_id', 
+            'capacity', 'status', 'description',
+            'min_people', 'max_people', 'min_people_blocking', 'max_people_blocking',
+            'equipment_coach', 'equipment_clients', 'equipment_location'
+        ];
         $updates = [];
         $values  = [];
 
