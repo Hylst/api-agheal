@@ -33,6 +33,11 @@ class ClientController
                 p.renewal_date,
                 u.email,
                 (
+                    SELECT JSON_ARRAYAGG(role)
+                    FROM user_roles
+                    WHERE user_id = p.id
+                ) as roles,
+                (
                     SELECT JSON_ARRAYAGG(
                         JSON_OBJECT('id', g.id, 'name', g.name)
                     )
@@ -52,6 +57,7 @@ class ClientController
 
         foreach ($clients as &$client) {
             $client['groups'] = json_decode($client['groups'] ?? '[]', true) ?: [];
+            $client['roles'] = json_decode($client['roles'] ?? '[]', true) ?: [];
         }
 
         http_response_code(200);
