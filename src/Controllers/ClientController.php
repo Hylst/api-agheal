@@ -42,7 +42,8 @@ class ClientController
                 ) as groups
             FROM profiles p
             LEFT JOIN users u ON u.id = p.id
-            JOIN user_roles ur ON ur.user_id = p.id AND ur.role = 'adherent'
+            JOIN user_roles ur ON ur.user_id = p.id AND ur.role IN ('adherent', 'coach')
+            GROUP BY p.id, u.email
             ORDER BY p.last_name, p.first_name
         ";
 
