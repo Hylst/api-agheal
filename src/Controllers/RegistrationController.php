@@ -138,8 +138,9 @@ class RegistrationController
      * DELETE /registrations/{sessionId}
      * Désinscrit l'utilisateur connecté d'une séance
      */
-    public function unregister(int $sessionId): void
+    public function unregister(string $id): void
     {
+        $sessionId = $id;
         $currentUser = Auth::requireAuth();
         $userId = $currentUser['sub'];
 
