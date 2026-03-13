@@ -65,7 +65,7 @@ class SessionTypeController
     /**
      * PUT /session-types/{id}
      */
-    public function update(int $id): void
+    public function update(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
@@ -91,7 +91,7 @@ class SessionTypeController
     /**
      * DELETE /session-types/{id}
      */
-    public function delete(int $id): void
+    public function delete(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 

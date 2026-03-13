@@ -49,7 +49,7 @@ class LocationController
     /**
      * PUT /locations/{id}
      */
-    public function update(int $id): void
+    public function update(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
@@ -75,7 +75,7 @@ class LocationController
     /**
      * DELETE /locations/{id}
      */
-    public function delete(int $id): void
+    public function delete(string $id): void
     {
         Auth::requireRole(['admin']);
 
