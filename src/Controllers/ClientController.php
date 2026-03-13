@@ -61,7 +61,7 @@ class ClientController
      * PUT /clients/{id}
      * Met à jour les champs d'un adhérent (coach_remarks, payment_status, renewal_date)
      */
-    public function update(string $userId): void
+    public function update(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
@@ -84,7 +84,7 @@ class ClientController
             return;
         }
 
-        $values[] = $userId;
+        $values[] = $id;
         $db = Database::getInstance();
         $db->query(
             "UPDATE profiles SET " . implode(', ', $updates) . " WHERE id = ?",
@@ -96,7 +96,7 @@ class ClientController
             $currentUser = Auth::requireAuth();
             $db->query(
                 "INSERT INTO payments_history (user_id, payment_date, renewal_date, received_by) VALUES (?, CURRENT_DATE, ?, ?)",
-                [$userId, $data['renewal_date'] ?? null, $currentUser['sub']]
+                [$id, $data['renewal_date'] ?? null, $currentUser['sub']]
             );
         }
 
@@ -108,7 +108,7 @@ class ClientController
      * PUT /clients/{id}/groups
      * Resynchronise les groupes d'un adhérent (max 3)
      */
-    public function setGroups(string $userId): void
+    public function setGroups(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
@@ -131,13 +131,13 @@ class ClientController
         $db = Database::getInstance();
 
         // Supprimer les anciens groupes
-        $db->query("DELETE FROM user_groups WHERE user_id = ?", [$userId]);
+        $db->query("DELETE FROM user_groups WHERE user_id = ?", [$id]);
 
         // Insérer les nouveaux
         foreach ($groupIds as $groupId) {
             $db->query(
                 "INSERT INTO user_groups (user_id, group_id, assigned_by) VALUES (?, ?, ?)",
-                [$userId, (int)$groupId, $assignedBy]
+                [$id, (int)$groupId, $assignedBy]
             );
         }
 

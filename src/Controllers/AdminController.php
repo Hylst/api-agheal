@@ -54,7 +54,7 @@ class AdminController
      * PUT /admin/users/{id}/status
      * Change le statut d'un compte (actif | bloque)
      */
-    public function updateStatus(string $userId): void
+    public function updateStatus(string $id): void
     {
         $payload = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
@@ -69,7 +69,7 @@ class AdminController
         }
 
         // Sécurité critique : Empêcher un admin de se bloquer lui-même
-        if ($status === 'bloque' && $userId === $currentUserId) {
+        if ($status === 'bloque' && $id === $currentUserId) {
             http_response_code(403);
             echo json_encode(['error' => 'Vous ne pouvez pas bloquer votre propre compte administrateur']);
             return;
@@ -78,11 +78,11 @@ class AdminController
         $db = Database::getInstance();
         $db->query(
             "UPDATE profiles SET statut_compte = ? WHERE id = ?",
-            [$status, $userId]
+            [$status, $id]
         );
 
         $this->logAdminAction($currentUserId, 'update_user_status', [
-            'target_user_id' => $userId,
+            'target_user_id' => $id,
             'new_status' => $status
         ]);
 
@@ -94,7 +94,7 @@ class AdminController
      * POST /admin/users/{id}/roles
      * Ajoute un rôle à un utilisateur
      */
-    public function addRole(string $userId): void
+    public function addRole(string $id): void
     {
         $payload = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
@@ -113,7 +113,7 @@ class AdminController
         // Vérifie si le rôle existe déjà
         $stmt = $db->query(
             "SELECT id FROM user_roles WHERE user_id = ? AND role = ?",
-            [$userId, $role]
+            [$id, $role]
         );
 
         if ($stmt->rowCount() > 0) {
@@ -124,11 +124,11 @@ class AdminController
 
         $db->query(
             "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
-            [$userId, $role]
+            [$id, $role]
         );
 
         $this->logAdminAction($currentUserId, 'add_user_role', [
-            'target_user_id' => $userId,
+            'target_user_id' => $id,
             'role' => $role
         ]);
 
@@ -140,7 +140,7 @@ class AdminController
      * DELETE /admin/users/{id}/roles/{role}
      * Retire un rôle d'un utilisateur
      */
-    public function removeRole(string $userId, string $role): void
+    public function removeRole(string $id, string $role): void
     {
         $payload = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
@@ -159,7 +159,7 @@ class AdminController
         }
 
         // Sécurité critique : Empêcher un admin de se retirer son propre rôle admin (Lockout prevention)
-        if ($role === 'admin' && $userId === $currentUserId) {
+        if ($role === 'admin' && $id === $currentUserId) {
             http_response_code(403);
             echo json_encode(['error' => 'Vous ne pouvez pas vous retirer votre propre rôle administrateur']);
             return;
@@ -168,11 +168,11 @@ class AdminController
         $db = Database::getInstance();
         $db->query(
             "DELETE FROM user_roles WHERE user_id = ? AND role = ?",
-            [$userId, $role]
+            [$id, $role]
         );
 
         $this->logAdminAction($currentUserId, 'remove_user_role', [
-            'target_user_id' => $userId,
+            'target_user_id' => $id,
             'role' => $role
         ]);
 
