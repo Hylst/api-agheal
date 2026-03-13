@@ -138,7 +138,7 @@ class ClientController
         foreach ($groupIds as $groupId) {
             $db->query(
                 "INSERT INTO user_groups (user_id, group_id, assigned_by) VALUES (?, ?, ?)",
-                [$id, (int)$groupId, $assignedBy]
+                [$id, $groupId, $assignedBy]
             );
         }
 
