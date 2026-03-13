@@ -168,7 +168,7 @@ class SessionController
     /**
      * PUT /sessions/{id}
      */
-    public function update(int $id): void
+    public function update(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
@@ -212,7 +212,7 @@ class SessionController
     /**
      * DELETE /sessions/{id}
      */
-    public function delete(int $id): void
+    public function delete(string $id): void
     {
         Auth::requireRole(['admin', 'coach']);
 
