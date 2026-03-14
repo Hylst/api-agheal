@@ -2,6 +2,7 @@
 // src/Controllers/SessionController.php
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Services/MailerService.php';
 
 class SessionController
 {
@@ -156,6 +157,30 @@ class SessionController
             }
 
             $db->commit();
+
+            // --- NOTIFICATION EMAIL DES NOUVELLES SÉANCES ---
+            try {
+                $stmtStr = "
+                    SELECT p.email
+                    FROM profiles p
+                    JOIN user_roles ur ON p.id = ur.user_id
+                    WHERE ur.role = 'adherent'
+                      AND p.statut_compte = 'actif'
+                      AND p.notify_new_sessions_email = 1
+                      AND p.email IS NOT NULL
+                      AND p.email != ''
+                ";
+                $stmtEmails = $db->query($stmtStr);
+                $bccEmails = $stmtEmails->fetchAll(PDO::FETCH_COLUMN);
+
+                if (!empty($bccEmails)) {
+                    $mailer = new \App\Services\MailerService();
+                    $mailer->sendNewSessionsNotification($bccEmails, $sessionsToCreate);
+                }
+            } catch (Exception $eMail) {
+                error_log("Erreur Mailer (Nouvelles Séances) : " . $eMail->getMessage());
+            }
+
             http_response_code(201);
             echo json_encode(['message' => count($sessionsToCreate) . ' séance(s) créée(s)']);
         } catch (Exception $e) {

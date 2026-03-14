@@ -1,5 +1,12 @@
 # Changelog - API AGHeal
 
+## [1.5.0] - Mars 2026
+
+### 📧 Notifications & Rappels (CRON)
+- **MailerService** : Création d'un service central d'envoi d'e-mails via PHPMailer.
+- **Tâches Quotidiennes** : Nouveau script `scripts/cron_daily.php` effectuant l'envoi des rappels de séances (adhérents, coachs) et les alertes de renouvellement à J-1.
+- **Nouvelles Séances** : Notification automatique aux adhérents ayant l'option activée lors de la création de séances par un coach.
+
 ## [1.4.0] - Mars 2026
 
 ### ✨ Gestion de la Facturation & Abonnements
