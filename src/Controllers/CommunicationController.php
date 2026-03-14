@@ -29,7 +29,7 @@ class CommunicationController {
 
             // Force typage et nettoyage
             $communications = array_map(function($c) {
-                $c['is_urgent'] = (bool)$c['is_urgent'];
+                $c['is_urgent'] = isset($c['is_urgent']) ? (bool)$c['is_urgent'] : false;
                 return $c;
             }, $communications);
 
@@ -45,7 +45,7 @@ class CommunicationController {
      */
     public function getMy() {
         $user = Auth::requireAuth();
-        $userId = $user['id'];
+        $userId = $user['sub'] ?? null;
 
         try {
             // Étape 1 : Obtenir les IDs des groupes de l'utilisateur
@@ -80,7 +80,7 @@ class CommunicationController {
 
             // Formatage
             $communications = array_map(function($c) {
-                $c['is_urgent'] = (bool)$c['is_urgent'];
+                $c['is_urgent'] = isset($c['is_urgent']) ? (bool)$c['is_urgent'] : false;
                 return $c;
             }, $communications);
 
@@ -148,7 +148,7 @@ class CommunicationController {
             $communication = $fetchStmt->fetch(PDO::FETCH_ASSOC);
             
             if ($communication) {
-                $communication['is_urgent'] = (bool)$communication['is_urgent'];
+                $communication['is_urgent'] = isset($communication['is_urgent']) ? (bool)$communication['is_urgent'] : false;
                 echo json_encode([
                     'message' => 'Communication enregistrée avec succès',
                     'data' => $communication
@@ -214,7 +214,7 @@ class CommunicationController {
             ");
             $fetchStmt->execute([$id]);
             $communication = $fetchStmt->fetch(PDO::FETCH_ASSOC);
-            $communication['is_urgent'] = (bool)$communication['is_urgent'];
+            $communication['is_urgent'] = isset($communication['is_urgent']) ? (bool)$communication['is_urgent'] : false;
 
             echo json_encode([
                 'message' => 'Message mis à jour avec succès',
