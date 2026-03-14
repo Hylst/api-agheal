@@ -146,12 +146,27 @@ class CommunicationController {
             }
 
             $communication = $fetchStmt->fetch(PDO::FETCH_ASSOC);
-            $communication['is_urgent'] = (bool)$communication['is_urgent'];
-
-            echo json_encode([
-                'message' => 'Communication enregistrée avec succès',
-                'data' => $communication
-            ]);
+            
+            if ($communication) {
+                $communication['is_urgent'] = (bool)$communication['is_urgent'];
+                echo json_encode([
+                    'message' => 'Communication enregistrée avec succès',
+                    'data' => $communication
+                ]);
+            } else {
+                echo json_encode([
+                    'message' => 'Communication enregistrée avec succès',
+                    'data' => [
+                        'id' => $this->db->lastInsertId(),
+                        'author_id' => $authorId,
+                        'target_type' => $targetType,
+                        'target_id' => $targetId,
+                        'content' => $content,
+                        'is_urgent' => (bool)$isUrgent,
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]
+                ]);
+            }
         } catch (PDOException $e) {
             error_log($e->getMessage());
             http_response_code(500);
