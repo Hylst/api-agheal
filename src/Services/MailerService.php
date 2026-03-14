@@ -280,4 +280,39 @@ class MailerService
             return false;
         }
     }
+
+    /**
+     * Envoie un e-mail personnalisable (campagne d'e-mails)
+     */
+    public function sendCustomCampaign(string $toEmail, string $firstName, string $subject, string $content): bool
+    {
+        try {
+            $mail = $this->getMailer();
+            $mail->addAddress($toEmail, $firstName);
+            
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            
+            // Formatage du contenu avec des retours à la ligne HTML
+            $formattedContent = nl2br(htmlspecialchars($content));
+            
+            $body = "<h2>Bonjour $firstName,</h2>";
+            $body .= "<p>{$formattedContent}</p>";
+            $body .= "<br><p>L'équipe {$this->appName}</p>";
+            
+            $mail->Body = $body;
+            
+            // Version AltBody (texte brut)
+            $altBody = "Bonjour $firstName,\n\n";
+            $altBody .= strip_tags($content) . "\n\n";
+            $altBody .= "L'équipe {$this->appName}";
+            
+            $mail->AltBody = $altBody;
+            
+            return $mail->send();
+        } catch (Exception $e) {
+            error_log("Mailer Error (Custom Campaign): {$e->getMessage()}");
+            return false;
+        }
+    }
 }

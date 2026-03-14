@@ -15,6 +15,7 @@ require_once __DIR__ . '/../src/Controllers/ClientController.php';
 require_once __DIR__ . '/../src/Controllers/SessionTypeController.php';
 require_once __DIR__ . '/../src/Controllers/RegistrationController.php';
 require_once __DIR__ . '/../src/Controllers/CommunicationController.php';
+require_once __DIR__ . '/../src/Controllers/EmailCampaignController.php';
 
 use Dotenv\Dotenv;
 
@@ -133,6 +134,11 @@ $routes = [
     'POST /communications'          => ['CommunicationController', 'save'],
     'PUT /communications/{id}'      => ['CommunicationController', 'update'],
     'DELETE /communications/{id}'   => ['CommunicationController', 'delete'],
+
+    // ── Email Campaigns ────────────────────────────────
+    'GET /email-campaigns'          => ['EmailCampaignController', 'index'],
+    'POST /email-campaigns'         => ['EmailCampaignController', 'create'],
+    'DELETE /email-campaigns/{id}'  => ['EmailCampaignController', 'delete'],
 
     // ── Contact ────────────────────────────────────────
     'POST /contact'                 => ['ContactController',      'send'],
