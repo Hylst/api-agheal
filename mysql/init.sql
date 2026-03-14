@@ -190,16 +190,20 @@ CREATE TABLE IF NOT EXISTS `registrations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 6. CONFIGURATION APPLICATION
+-- 6. COMMUNICATIONS CIBLÉES
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS `app_info` (
-    `id` INT PRIMARY KEY,
-    `informations_complementaires` TEXT DEFAULT NULL,
-    `precisions` TEXT DEFAULT NULL,
-    `communication_speciale` TEXT DEFAULT NULL,
+CREATE TABLE IF NOT EXISTS `communications` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `author_id` CHAR(36) DEFAULT NULL,
+    `target_type` ENUM('all', 'group', 'user') NOT NULL DEFAULT 'all',
+    `target_id` CHAR(36) NULL DEFAULT NULL,
+    `content` TEXT NOT NULL,
+    `is_urgent` TINYINT(1) DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `updated_by` CHAR(36) DEFAULT NULL
+    UNIQUE KEY `uk_communications_target` (`target_type`, `target_id`),
+    KEY `fk_communications_author` (`author_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -245,8 +249,8 @@ ALTER TABLE `profiles`
 ALTER TABLE `user_roles`
     ADD CONSTRAINT `fk_user_roles_user` FOREIGN KEY (`user_id`) REFERENCES `profiles`(`id`) ON DELETE CASCADE;
 
-ALTER TABLE `app_info`
-    ADD CONSTRAINT `fk_app_info_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `profiles`(`id`) ON DELETE SET NULL;
+ALTER TABLE `communications`
+    ADD CONSTRAINT `fk_communications_author` FOREIGN KEY (`author_id`) REFERENCES `profiles`(`id`) ON DELETE SET NULL;
 
 ALTER TABLE `groups`
     ADD CONSTRAINT `fk_groups_created_by` FOREIGN KEY (`created_by`) REFERENCES `profiles`(`id`) ON DELETE SET NULL;
@@ -336,8 +340,7 @@ LEFT JOIN profiles p ON s.created_by = p.id;
 -- 10. DONNÉES INITIALES
 -- =============================================================================
 
-INSERT IGNORE INTO `app_info` (`id`, `informations_complementaires`, `precisions`, `communication_speciale`)
-VALUES (1, '', '', '');
+-- Plus d'insertion manuelle requise pour les communications, elles seront créées via l'application.
 
 SET foreign_key_checks = 1;
 

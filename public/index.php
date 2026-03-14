@@ -14,7 +14,7 @@ require_once __DIR__ . '/../src/Controllers/AdminController.php';
 require_once __DIR__ . '/../src/Controllers/ClientController.php';
 require_once __DIR__ . '/../src/Controllers/SessionTypeController.php';
 require_once __DIR__ . '/../src/Controllers/RegistrationController.php';
-require_once __DIR__ . '/../src/Controllers/AppInfoController.php';
+require_once __DIR__ . '/../src/Controllers/CommunicationController.php';
 
 use Dotenv\Dotenv;
 
@@ -127,9 +127,11 @@ $routes = [
     'PUT /clients/{id}'             => ['ClientController',       'update'],
     'PUT /clients/{id}/groups'      => ['ClientController',       'setGroups'],
 
-    // ── App Info ───────────────────────────────────────
-    'GET /app-info'                 => ['AppInfoController',      'index'],
-    'PUT /app-info'                 => ['AppInfoController',      'update'],
+    // ── Communications ─────────────────────────────────
+    'GET /communications'           => ['CommunicationController', 'index'],
+    'GET /communications/my'        => ['CommunicationController', 'getMy'],
+    'POST /communications'          => ['CommunicationController', 'save'],
+    'DELETE /communications/{id}'   => ['CommunicationController', 'delete'],
 
     // ── Contact ────────────────────────────────────────
     'POST /contact'                 => ['ContactController',      'send'],

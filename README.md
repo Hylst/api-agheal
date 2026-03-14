@@ -1,5 +1,7 @@
 # API AGHeal - Backend PHP
 
+> **Version actuelle : 1.5.1** | [Voir le CHANGELOG](./CHANGELOG.md)
+
 Bienvenue sur le dépôt du backend de l'application **AGHeal**. 
 Cette API est développée en PHP 8.1+ et assure la gestion de la base de données MariaDB, l'authentification JWT et la logique métier du projet.
 
@@ -26,7 +28,12 @@ Ce projet est configuré pour être déployé facilement via **Docker** ou **Coo
 
 ## 🤖 Automatisation (CRON)
 Le système inclut un script consolidé gérant toutes les notifications asynchrones :
-- `scripts/cron_daily.php` : À exécuter quotidiennement (ex: 07h00). Il envoie les rappels de renouvellement d'adhésion, les e-mails de rappel de séance pour les inscrits du lendemain, et un récapitulatif du planning aux coachs concernés.
+- `scripts/cron_daily.php` : À exécuter quotidiennement (ex: 07h00).
+    - **Rappels Séances** : Emails J-1 pour les adhérents et coachs.
+    - **Renouvellement** : Emails J-7 pour les adhérents.
+    - **Certificat Médical** : Rappel M-1 par email pour les adhérents.
+    - **Auto-Expiration** : À J+1 de la date de renouvellement, le statut passe à "en_attente" et une alerte est envoyée aux coachs.
+    - **Nouveaux Créneaux** : Notification immédiate lors de la publication (via SessionController).
 
 ## 🚀 Installation locale
 1. Clonez le dépôt.
