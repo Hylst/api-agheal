@@ -111,7 +111,7 @@ class CommunicationController {
         $targetId = ($targetType === 'all') ? null : ($data['target_id'] ?? null);
         $content = $data['content'];
         $isUrgent = isset($data['is_urgent']) ? (int)$data['is_urgent'] : 0;
-        $authorId = $user['id'];
+        $authorId = $user['sub'] ?? null;
 
         if ($targetType !== 'all' && empty($targetId)) {
             http_response_code(400);
