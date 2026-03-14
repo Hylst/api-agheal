@@ -214,4 +214,70 @@ class MailerService
             return false;
         }
     }
+
+    /**
+     * Envoie l'e-mail de rappel de renouvellement de certificat médical (M-1)
+     */
+    public function sendMedicalCertificateReminder(string $toEmail, string $firstName, string $certifDate): bool
+    {
+        try {
+            $mail = $this->getMailer();
+            $mail->addAddress($toEmail, $firstName);
+            
+            $mail->isHTML(true);
+            $mail->Subject = "Rappel : Renouvellement de votre certificat médical à venir";
+            
+            $date = date('d/m/Y', strtotime($certifDate));
+            
+            $body = "<h2>Bonjour $firstName,</h2>";
+            $body .= "<p>Pourriez-vous vérifier la validité de votre certificat d'aptitude médicale ?</p>";
+            $body .= "<p>Sauf erreur de notre part, celui que vous nous avez fourni arrive à expiration dans un mois (le <strong>{$date}</strong>).</p>";
+            $body .= "<p>Nous vous invitons à consulter votre médecin pour obtenir un nouveau certificat et à nous le remettre lors de votre prochaine venue.</p>";
+            $body .= "<br><p>Sportivement,</p>";
+            $body .= "<p>L'équipe {$this->appName}</p>";
+            
+            $mail->Body = $body;
+            $mail->AltBody = strip_tags(str_replace(['<br>', '</p>'], ["\n", "\n\n"], $body));
+            
+            return $mail->send();
+        } catch (Exception $e) {
+            error_log("Mailer Error (Medical Certif): {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    /**
+     * Alerte un coach/admin qu'un ou plusieurs adhérents ont des paiements expirés.
+     */
+    public function sendExpiredPaymentAlert(string $toEmail, string $coachName, array $expiredClients): bool
+    {
+        try {
+            $mail = $this->getMailer();
+            $mail->addAddress($toEmail, $coachName);
+            
+            $mail->isHTML(true);
+            $mail->Subject = "Alerte automatique : Abonnements arrivés à échéance";
+            
+            $body = "<h2>Bonjour $coachName,</h2>";
+            $body .= "<p>Le système a automatiquement basculé le statut de règlement des adhérents suivants en \"En attente\", car leur date de renouvellement est dépassée :</p>";
+            
+            $body .= "<ul>";
+            foreach ($expiredClients as $client) {
+                $date = date('d/m/Y', strtotime($client['renewal_date']));
+                $body .= "<li><strong>{$client['first_name']} {$client['last_name']}</strong> (échue le {$date})</li>";
+            }
+            $body .= "</ul>";
+            
+            $body .= "<p>Veuillez faire le point avec eux lors de leur prochaine séance.</p>";
+            $body .= "<br><p>Le système {$this->appName}</p>";
+            
+            $mail->Body = $body;
+            $mail->AltBody = strip_tags(str_replace(['<br>', '</li>', '</p>'], ["\n", "\n", "\n\n"], $body));
+            
+            return $mail->send();
+        } catch (Exception $e) {
+            error_log("Mailer Error (Expired Payment Alert): {$e->getMessage()}");
+            return false;
+        }
+    }
 }

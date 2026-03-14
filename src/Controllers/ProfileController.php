@@ -133,6 +133,8 @@ class ProfileController
             'notify_scheduled_sessions_push',
             'notify_renewal_reminder_email',
             'notify_renewal_reminder_push',
+            'notify_medical_certif_email',
+            'notify_expired_payment_email',
         ];
 
         $updates = [];

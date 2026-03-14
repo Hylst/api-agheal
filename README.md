@@ -3,8 +3,9 @@
 Bienvenue sur le dépôt du backend de l'application **AGHeal**. 
 Cette API est développée en PHP 8.1+ et assure la gestion de la base de données MariaDB, l'authentification JWT et la logique métier du projet.
 
-## 👤 Auteur
+## 👤 Auteur & Droits
 **Geoffroy Streit** - Développeur apprenant.
+*© 2026 Geoffroy Streit. Tous droits réservés. Code source propriétaire, non libre de droits.*
 
 ## 🏗️ Architecture
 - **PHP 8.1** (Apache)

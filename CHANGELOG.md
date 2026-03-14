@@ -1,5 +1,16 @@
 # Changelog - API AGHeal
 
+## [1.5.1] - Mars 2026
+
+### ✨ Certificats & Alertes Expiration
+- **Base de données** : Ajout des champs `medical_certificate_date`, `notify_medical_certif_email`, et `notify_expired_payment_email`.
+- **CRON** : Nouvelle vérification mensuelle (M-1) pour prévenir les adhérents de l'expiration du certificat médical.
+- **CRON** : Bascule automatique au statut "en_attente" à J+1 de la date de renouvellement, et alerte email aux coachs.
+- **API** : Nouveaux templates d'e-mails dans `MailerService` et extension des endpoints `ClientController` et `ProfileController`.
+
+### ⚖️ Légal
+- **Licence** : Ajout d'un fichier `LICENSE` propriétaire et mise à jour des entêtes/packages.
+
 ## [1.5.0] - Mars 2026
 
 ### 📧 Notifications & Rappels (CRON)

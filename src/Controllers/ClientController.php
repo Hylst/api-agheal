@@ -31,6 +31,7 @@ class ClientController
                 p.age,
                 p.payment_status,
                 p.renewal_date,
+                p.medical_certificate_date,
                 u.email,
                 (
                     SELECT JSON_ARRAYAGG(role)
@@ -74,7 +75,7 @@ class ClientController
 
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $allowed = ['coach_remarks', 'payment_status', 'renewal_date'];
+        $allowed = ['coach_remarks', 'payment_status', 'renewal_date', 'medical_certificate_date'];
         $updates = [];
         $values = [];
 

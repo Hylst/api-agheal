@@ -30,9 +30,11 @@ if (file_exists(__DIR__ . '/../.env')) {
 try {
     $db = Database::getInstance();
     $mailer = new MailerService();
+    $today = date('Y-m-d');
     $tomorrow = date('Y-m-d', strtotime('+1 day'));
+    $nextMonth = date('Y-m-d', strtotime('+1 month'));
 
-    echo "[CRON] Début du traitement pour la date : {$tomorrow}\n";
+    echo "[CRON] Début du traitement pour la date : {$today} (Demain: {$tomorrow}, M+1: {$nextMonth})\n";
 
     // =========================================================================
     // 1. RAPPELS DE RENOUVELLEMENT
@@ -134,6 +136,74 @@ try {
         }
     }
     echo "    -> {$coachRemindersSent} récapitulatif(s) envoyé(s) aux coachs sur " . count($coachs) . ".\n";
+
+    // =========================================================================
+    // 4. CERTIFICATS MÉDICAUX (M-1)
+    // =========================================================================
+    echo "\n[4] Traitement des certificats médicaux à M-1...\n";
+    $stmtCertif = $db->prepare("
+        SELECT id, first_name, email, medical_certificate_date
+        FROM profiles 
+        WHERE medical_certificate_date = :nextMonth 
+          AND notify_medical_certif_email = 1
+    ");
+    $stmtCertif->execute(['nextMonth' => $nextMonth]);
+    $certifs = $stmtCertif->fetchAll(PDO::FETCH_ASSOC);
+
+    $certifsSent = 0;
+    foreach ($certifs as $user) {
+        if (!empty($user['email'])) {
+            $success = $mailer->sendMedicalCertificateReminder($user['email'], $user['first_name'], $user['medical_certificate_date']);
+            if ($success) $certifsSent++;
+        }
+    }
+    echo "    -> {$certifsSent} rappel(s) de certificat médical envoyé(s) sur " . count($certifs) . ".\n";
+
+    // =========================================================================
+    // 5. EXPIRATION DES PAIEMENTS (J+1) ET ALERTES COACHS
+    // =========================================================================
+    echo "\n[5] Traitement des expirations de paiement...\n";
+    // On cherche les adhérents dont la date est passée ET qui ne sont pas déjà 'en_attente'
+    $stmtExpired = $db->prepare("
+        SELECT id, first_name, last_name, renewal_date
+        FROM profiles
+        WHERE renewal_date < :today
+          AND payment_status != 'en_attente'
+    ");
+    $stmtExpired->execute(['today' => $today]);
+    $expiredClients = $stmtExpired->fetchAll(PDO::FETCH_ASSOC);
+
+    if (count($expiredClients) > 0) {
+        // Mettre à jour le statut en base
+        $ids = array_column($expiredClients, 'id');
+        $inQuery = implode(',', array_fill(0, count($ids), '?'));
+        
+        $updateStmt = $db->prepare("UPDATE profiles SET payment_status = 'en_attente' WHERE id IN ($inQuery)");
+        $updateStmt->execute($ids);
+        echo "    -> " . count($expiredClients) . " adhérent(s) passé(s) en statut 'en_attente'.\n";
+
+        // Alerter les coachs/admins qui ont coché l'option
+        $stmtAlertCoachs = $db->prepare("
+            SELECT p.id, p.first_name, p.email
+            FROM profiles p
+            JOIN user_roles ur ON p.id = ur.user_id
+            WHERE ur.role IN ('admin', 'coach') 
+              AND p.notify_expired_payment_email = 1
+        ");
+        $stmtAlertCoachs->execute();
+        $alertCoachs = $stmtAlertCoachs->fetchAll(PDO::FETCH_ASSOC);
+
+        $alertsSent = 0;
+        foreach ($alertCoachs as $coach) {
+            if (!empty($coach['email'])) {
+                $success = $mailer->sendExpiredPaymentAlert($coach['email'], $coach['first_name'], $expiredClients);
+                if ($success) $alertsSent++;
+            }
+        }
+        echo "    -> {$alertsSent} alerte(s) d'expiration envoyée(s) aux coachs.\n";
+    } else {
+        echo "    -> Aucun nouveau paiement expiré aujourd'hui.\n";
+    }
 
     echo "\n[CRON] Terminé avec succès.\n";
     exit(0);

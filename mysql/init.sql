@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS `profiles` (
     `notify_scheduled_sessions_push` TINYINT(1) DEFAULT 0,
     `notify_renewal_reminder_email` TINYINT(1) DEFAULT 1,
     `notify_renewal_reminder_push` TINYINT(1) DEFAULT 0,
+    `medical_certificate_date` DATE DEFAULT NULL,
+    `notify_medical_certif_email` TINYINT(1) DEFAULT 1,
+    `notify_expired_payment_email` TINYINT(1) DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -230,6 +233,7 @@ CREATE TABLE IF NOT EXISTS `payments_history` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX `idx_profiles_renewal_date` ON `profiles`(`renewal_date`);
+CREATE INDEX `idx_profiles_medical_certif_date` ON `profiles`(`medical_certificate_date`);
 
 -- =============================================================================
 -- 8. CONTRAINTES (CLÉS ÉTRANGÈRES)
