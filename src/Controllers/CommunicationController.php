@@ -160,6 +160,59 @@ class CommunicationController {
     }
 
     /**
+     * Pour Admin/Coach : Mettre à jour le contenu et l'urgence d'un message existant
+     */
+    public function update(int $id) {
+        $user = Auth::requireAuth();
+        Auth::requireRole(['admin', 'coach']);
+
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        if (!isset($data['content'])) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Le contenu est requis']);
+            return;
+        }
+
+        $content  = $data['content'];
+        $isUrgent = isset($data['is_urgent']) ? (int)$data['is_urgent'] : 0;
+
+        try {
+            $stmt = $this->db->prepare("
+                UPDATE communications
+                SET content = ?, is_urgent = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ");
+            $stmt->execute([$content, $isUrgent, $id]);
+
+            if ($stmt->rowCount() === 0) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Message introuvable']);
+                return;
+            }
+
+            $fetchStmt = $this->db->prepare("
+                SELECT c.*, p.first_name, p.last_name
+                FROM communications c
+                LEFT JOIN profiles p ON c.author_id = p.id
+                WHERE c.id = ?
+            ");
+            $fetchStmt->execute([$id]);
+            $communication = $fetchStmt->fetch(PDO::FETCH_ASSOC);
+            $communication['is_urgent'] = (bool)$communication['is_urgent'];
+
+            echo json_encode([
+                'message' => 'Message mis à jour avec succès',
+                'data'    => $communication
+            ]);
+        } catch (PDOException $e) {
+            error_log($e->getMessage());
+            http_response_code(500);
+            echo json_encode(['error' => 'Erreur lors de la mise à jour']);
+        }
+    }
+
+    /**
      * Pour Admin/Coach : Supprimer un message
      */
     public function delete($id) {

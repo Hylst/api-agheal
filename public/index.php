@@ -131,6 +131,7 @@ $routes = [
     'GET /communications'           => ['CommunicationController', 'index'],
     'GET /communications/my'        => ['CommunicationController', 'getMy'],
     'POST /communications'          => ['CommunicationController', 'save'],
+    'PUT /communications/{id}'      => ['CommunicationController', 'update'],
     'DELETE /communications/{id}'   => ['CommunicationController', 'delete'],
 
     // ── Contact ────────────────────────────────────────
