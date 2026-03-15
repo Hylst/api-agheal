@@ -74,7 +74,9 @@ class PaymentController
 
         // Total global
         $totalStmt = $db->query("SELECT COALESCE(SUM(amount), 0) AS total FROM payments_history");
-        $total = $totalStmt->fetch()['total'];
+        // COALESCE garantit toujours une ligne, mais on défend le fetch() au cas où
+        $row = $totalStmt->fetch();
+        $total = $row ? $row['total'] : 0;
 
         // Total mois en cours
         $monthStmt = $db->query("
@@ -83,7 +85,8 @@ class PaymentController
             WHERE YEAR(payment_date) = YEAR(CURRENT_DATE)
               AND MONTH(payment_date) = MONTH(CURRENT_DATE)
         ");
-        $monthTotal = $monthStmt->fetch()['total'];
+        $rowMonth = $monthStmt->fetch();
+        $monthTotal = $rowMonth ? $rowMonth['total'] : 0;
 
         // Par méthode de paiement
         $methodStmt = $db->query("
@@ -123,7 +126,8 @@ class PaymentController
 
         // Nombre total de règlements
         $countStmt = $db->query("SELECT COUNT(*) AS count FROM payments_history");
-        $count = $countStmt->fetch()['count'];
+        $rowCount = $countStmt->fetch();
+        $count = $rowCount ? $rowCount['count'] : 0;
 
         http_response_code(200);
         echo json_encode([
