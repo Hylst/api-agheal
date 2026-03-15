@@ -71,6 +71,13 @@ class EmailCampaignController {
 
             $id = $this->db->lastInsertId();
 
+            // Ajouter dans l'historique immuable
+            $stmtHistory = $this->db->prepare("
+                INSERT INTO message_history (author_id, message_type, target_type, target_id, subject, content)
+                VALUES (?, 'email', ?, ?, ?, ?)
+            ");
+            $stmtHistory->execute([$authorId, $targetType, $targetId, $subject, $content]);
+
             // Renvoyer l'objet créé
             $fetchStmt = $this->db->prepare("
                 SELECT c.*, p.first_name, p.last_name 

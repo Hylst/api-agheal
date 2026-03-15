@@ -145,6 +145,13 @@ class CommunicationController {
                 $fetchStmt->execute([$targetType]);
             }
 
+            // Ajouter dans l'historique immuable
+            $stmtHistory = $this->db->prepare("
+                INSERT INTO message_history (author_id, message_type, target_type, target_id, content)
+                VALUES (?, 'in_app', ?, ?, ?)
+            ");
+            $stmtHistory->execute([$authorId, $targetType, $targetId, $content]);
+
             $communication = $fetchStmt->fetch(PDO::FETCH_ASSOC);
             
             if ($communication) {

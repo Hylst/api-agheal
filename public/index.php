@@ -17,6 +17,8 @@ require_once __DIR__ . '/../src/Controllers/RegistrationController.php';
 require_once __DIR__ . '/../src/Controllers/CommunicationController.php';
 require_once __DIR__ . '/../src/Controllers/PushController.php';
 require_once __DIR__ . '/../src/Controllers/EmailCampaignController.php';
+require_once __DIR__ . '/../src/Controllers/HistoryController.php';
+require_once __DIR__ . '/../src/Controllers/PaymentController.php';
 
 use Dotenv\Dotenv;
 
@@ -144,6 +146,15 @@ $routes = [
     'GET /email-campaigns'          => ['EmailCampaignController', 'index'],
     'POST /email-campaigns'         => ['EmailCampaignController', 'create'],
     'DELETE /email-campaigns/{id}'  => ['EmailCampaignController', 'delete'],
+
+    // ── History ────────────────────────────────────────
+    'GET /history'                  => ['HistoryController',      'index'],
+
+    // ── Payments ───────────────────────────────────────
+    'GET /payments'                 => ['PaymentController',      'index'],
+    'GET /payments/summary'         => ['PaymentController',      'summary'],
+    'POST /payments'                => ['PaymentController',      'create'],
+    'DELETE /payments/{id}'         => ['PaymentController',      'delete'],
 
     // ── Contact ────────────────────────────────────────
     'POST /contact'                 => ['ContactController',      'send'],

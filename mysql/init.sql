@@ -78,9 +78,13 @@ CREATE TABLE IF NOT EXISTS `profiles` (
     `notify_scheduled_sessions_push` TINYINT(1) DEFAULT 0,
     `notify_renewal_reminder_email` TINYINT(1) DEFAULT 1,
     `notify_renewal_reminder_push` TINYINT(1) DEFAULT 0,
+    `notify_renewal_verify_email` TINYINT(1) DEFAULT 1,
+    `notify_renewal_verify_push` TINYINT(1) DEFAULT 0,
     `medical_certificate_date` DATE DEFAULT NULL,
     `notify_medical_certif_email` TINYINT(1) DEFAULT 1,
+    `notify_medical_certif_push` TINYINT(1) DEFAULT 0,
     `notify_expired_payment_email` TINYINT(1) DEFAULT 0,
+    `notify_expired_payment_push` TINYINT(1) DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -91,6 +95,18 @@ CREATE TABLE IF NOT EXISTS `user_roles` (
     `user_id` CHAR(36) NOT NULL,
     `role` ENUM('admin','coach','adherent') NOT NULL DEFAULT 'adherent',
     PRIMARY KEY (`user_id`, `role`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `push_subscriptions` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` CHAR(36) NOT NULL,
+    `endpoint` TEXT NOT NULL,
+    `p256dh` VARCHAR(255) NOT NULL,
+    `auth` VARCHAR(255) NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY `idx_push_subs_user` (`user_id`),
+    CONSTRAINT `fk_push_subs_user` FOREIGN KEY (`user_id`) REFERENCES `profiles`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -206,6 +222,18 @@ CREATE TABLE IF NOT EXISTS `communications` (
     KEY `fk_communications_author` (`author_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `message_history` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `author_id` CHAR(36) NOT NULL,
+    `message_type` ENUM('in_app', 'email') NOT NULL,
+    `target_type` ENUM('all', 'group', 'user') NOT NULL,
+    `target_id` CHAR(36) NULL,
+    `subject` VARCHAR(255) NULL,
+    `content` TEXT NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_message_history_author` FOREIGN KEY (`author_id`) REFERENCES `profiles` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =============================================================================
 -- 7. LOGS
 -- =============================================================================
@@ -227,13 +255,16 @@ CREATE TABLE IF NOT EXISTS `payments_history` (
     `user_id` CHAR(36) NOT NULL,
     `amount` DECIMAL(10,2) DEFAULT NULL,
     `payment_date` DATE NOT NULL,
+    `payment_method` ENUM('espece','cheque','virement') DEFAULT NULL,
     `renewal_date` DATE DEFAULT NULL,
     `received_by` CHAR(36) DEFAULT NULL,
+    `comment` TEXT DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_payments_user` (`user_id`),
     KEY `idx_payments_received_by` (`received_by`),
-    KEY `idx_payments_date` (`payment_date`)
+    KEY `idx_payments_date` (`payment_date`),
+    KEY `idx_payments_method` (`payment_method`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX `idx_profiles_renewal_date` ON `profiles`(`renewal_date`);
@@ -301,8 +332,20 @@ SELECT
     p.avatar_base64, p.additional_info, p.coach_remarks,
     p.age, p.payment_status, p.renewal_date,
     p.notify_session_reminder_email,
+    p.notify_session_reminder_push,
     p.notify_new_sessions_email,
+    p.notify_new_sessions_push,
+    p.notify_scheduled_sessions_email,
+    p.notify_scheduled_sessions_push,
     p.notify_renewal_reminder_email,
+    p.notify_renewal_reminder_push,
+    p.notify_renewal_verify_email,
+    p.notify_renewal_verify_push,
+    p.medical_certificate_date,
+    p.notify_medical_certif_email,
+    p.notify_medical_certif_push,
+    p.notify_expired_payment_email,
+    p.notify_expired_payment_push,
     p.created_at, p.updated_at,
     GROUP_CONCAT(ur.role ORDER BY
         CASE ur.role WHEN 'admin' THEN 1 WHEN 'coach' THEN 2 ELSE 3 END
