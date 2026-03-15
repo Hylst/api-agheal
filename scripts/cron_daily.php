@@ -17,8 +17,10 @@ if (php_sapi_name() !== 'cli') {
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Services/MailerService.php';
+require_once __DIR__ . '/../src/Services/PushService.php';
 
 use App\Services\MailerService;
+use App\Services\PushService;
 use Dotenv\Dotenv;
 
 // Charger les variables d'environnement
@@ -30,9 +32,21 @@ if (file_exists(__DIR__ . '/../.env')) {
 try {
     $db = Database::getInstance();
     $mailer = new MailerService();
+    $pusher = new PushService();
     $today = date('Y-m-d');
     $tomorrow = date('Y-m-d', strtotime('+1 day'));
     $nextMonth = date('Y-m-d', strtotime('+1 month'));
+
+    // Charger les coachs opt-in pour la vérification documents/paiements
+    $stmtVerifyCoachs = $db->prepare("
+        SELECT p.id, p.first_name, p.email, p.notify_renewal_verify_email, p.notify_renewal_verify_push
+        FROM profiles p
+        JOIN user_roles ur ON p.id = ur.user_id
+        WHERE ur.role IN ('admin', 'coach') 
+          AND (p.notify_renewal_verify_email = 1 OR p.notify_renewal_verify_push = 1)
+    ");
+    $stmtVerifyCoachs->execute();
+    $verifyCoachs = $stmtVerifyCoachs->fetchAll(PDO::FETCH_ASSOC);
 
     echo "[CRON] Début du traitement pour la date : {$today} (Demain: {$tomorrow}, M+1: {$nextMonth})\n";
 
@@ -41,24 +55,38 @@ try {
     // =========================================================================
     echo "\n[1] Traitement des rappels de renouvellement...\n";
     $stmtRenewal = $db->prepare("
-        SELECT id, first_name, email 
+        SELECT id, first_name, last_name, email, notify_renewal_reminder_email, notify_renewal_reminder_push
         FROM profiles 
-        WHERE renewal_date = :tomorrow 
-          AND notify_renewal_reminder_email = 1
+        WHERE renewal_date = :tomorrow
     ");
     $stmtRenewal->execute(['tomorrow' => $tomorrow]);
     $renewals = $stmtRenewal->fetchAll(PDO::FETCH_ASSOC);
 
     $renewalsSent = 0;
     foreach ($renewals as $user) {
-        if (!empty($user['email'])) {
+        if ($user['notify_renewal_reminder_email'] && !empty($user['email'])) {
             $success = $mailer->sendRenewalReminder($user['email'], $user['first_name'], $tomorrow);
-            if ($success) {
-                $renewalsSent++;
-            }
+            if ($success) $renewalsSent++;
+        }
+        if ($user['notify_renewal_reminder_push']) {
+            $pusher->sendToUser($user['id'], 'Renouvellement AGHeal', "Bonjour {$user['first_name']}, votre abonnement sport/coaching doit être renouvelé demain.");
         }
     }
     echo "    -> {$renewalsSent} email(s) de renouvellement envoyé(s) sur " . count($renewals) . ".\n";
+
+    if (count($renewals) > 0) {
+        $verifyCount = 0;
+        foreach ($verifyCoachs as $coach) {
+            if ($coach['notify_renewal_verify_email'] && !empty($coach['email'])) {
+                $mailer->sendDocumentVerificationAlert($coach['email'], $coach['first_name'], $renewals, "Renouvellement d'abonnement (Demain)");
+                $verifyCount++;
+            }
+            if ($coach['notify_renewal_verify_push']) {
+                $pusher->sendToUser($coach['id'], 'Vérification Requise', count($renewals) . " adhérent(s) renouvellent demain. Préparez-vous à vérifier.");
+            }
+        }
+        echo "    -> {$verifyCount} alerte(s) de vérification envoyée(s) aux coachs.\n";
+    }
 
     // =========================================================================
     // 2. RAPPELS DE SÉANCES POUR LES ADHÉRENTS
@@ -67,7 +95,7 @@ try {
     // On cherche les adhérents inscrits à une séance de demain qui ont activé l'option
     $stmtSessionsClient = $db->prepare("
         SELECT 
-            p.email, p.first_name,
+            p.id as user_id, p.email, p.first_name, p.notify_session_reminder_email, p.notify_session_reminder_push,
             s.title, s.date, s.start_time, s.end_time, s.equipment_clients,
             l.name as location_name
         FROM registrations r
@@ -75,7 +103,7 @@ try {
         JOIN sessions s ON r.session_id = s.id
         LEFT JOIN locations l ON s.location_id = l.id
         WHERE s.date = :tomorrow
-          AND p.notify_session_reminder_email = 1
+          AND (p.notify_session_reminder_email = 1 OR p.notify_session_reminder_push = 1)
           AND s.status = 'published'
     ");
     $stmtSessionsClient->execute(['tomorrow' => $tomorrow]);
@@ -83,11 +111,13 @@ try {
 
     $clientRemindersSent = 0;
     foreach ($clientSessions as $row) {
-        if (!empty($row['email'])) {
+        if ($row['notify_session_reminder_email'] && !empty($row['email'])) {
             $success = $mailer->sendSessionReminder($row['email'], $row['first_name'], $row);
-            if ($success) {
-                $clientRemindersSent++;
-            }
+            if ($success) $clientRemindersSent++;
+        }
+        if ($row['notify_session_reminder_push']) {
+            $h = substr($row['start_time'], 0, 5);
+            $pusher->sendToUser($row['user_id'], 'Rappel de Séance', "Demain à {$h} : {$row['title']} - {$row['location_name']}");
         }
     }
     echo "    -> {$clientRemindersSent} rappel(s) de séance envoyé(s) aux adhérents sur " . count($clientSessions) . ".\n";
@@ -98,11 +128,11 @@ try {
     echo "\n[3] Récapitulatif du planning pour les Coachs...\n";
     // Pour chaque coach ayant des séances demain et l'option activée
     $stmtCoachs = $db->prepare("
-        SELECT p.id, p.first_name, p.email
+        SELECT p.id, p.first_name, p.email, p.notify_scheduled_sessions_email, p.notify_scheduled_sessions_push
         FROM profiles p
         JOIN user_roles ur ON p.id = ur.user_id
         WHERE ur.role IN ('admin', 'coach') 
-          AND p.notify_scheduled_sessions_email = 1
+          AND (p.notify_scheduled_sessions_email = 1 OR p.notify_scheduled_sessions_push = 1)
           AND EXISTS (
               SELECT 1 FROM sessions s 
               WHERE s.created_by = p.id AND s.date = :tomorrow AND s.status = 'published'
@@ -129,9 +159,14 @@ try {
         $sessions = $stmtCoachSessions->fetchAll(PDO::FETCH_ASSOC);
 
         if (!empty($sessions)) {
-            $success = $mailer->sendCoachScheduleReminder($coach['email'], $coach['first_name'], $sessions);
-            if ($success) {
-                $coachRemindersSent++;
+            if ($coach['notify_scheduled_sessions_email'] && !empty($coach['email'])) {
+                $success = $mailer->sendCoachScheduleReminder($coach['email'], $coach['first_name'], $sessions);
+                if ($success) $coachRemindersSent++;
+            }
+            if ($coach['notify_scheduled_sessions_push']) {
+                $sCount = count($sessions);
+                $plural = $sCount > 1 ? 's' : '';
+                $pusher->sendToUser($coach['id'], 'Planning de demain', "Vous avez {$sCount} séance{$plural} programmée{$plural} demain.");
             }
         }
     }
@@ -142,22 +177,38 @@ try {
     // =========================================================================
     echo "\n[4] Traitement des certificats médicaux à M-1...\n";
     $stmtCertif = $db->prepare("
-        SELECT id, first_name, email, medical_certificate_date
+        SELECT id, first_name, last_name, email, medical_certificate_date, notify_medical_certif_email, notify_medical_certif_push
         FROM profiles 
-        WHERE medical_certificate_date = :nextMonth 
-          AND notify_medical_certif_email = 1
+        WHERE medical_certificate_date = :nextMonth
     ");
     $stmtCertif->execute(['nextMonth' => $nextMonth]);
     $certifs = $stmtCertif->fetchAll(PDO::FETCH_ASSOC);
 
     $certifsSent = 0;
     foreach ($certifs as $user) {
-        if (!empty($user['email'])) {
+        if ($user['notify_medical_certif_email'] && !empty($user['email'])) {
             $success = $mailer->sendMedicalCertificateReminder($user['email'], $user['first_name'], $user['medical_certificate_date']);
             if ($success) $certifsSent++;
         }
+        if ($user['notify_medical_certif_push']) {
+            $pusher->sendToUser($user['id'], 'Certificat Médical', "Attention {$user['first_name']}, votre certificat expire le {$user['medical_certificate_date']}.");
+        }
     }
     echo "    -> {$certifsSent} rappel(s) de certificat médical envoyé(s) sur " . count($certifs) . ".\n";
+
+    if (count($certifs) > 0) {
+        $verifyCount = 0;
+        foreach ($verifyCoachs as $coach) {
+            if ($coach['notify_renewal_verify_email'] && !empty($coach['email'])) {
+                $mailer->sendDocumentVerificationAlert($coach['email'], $coach['first_name'], $certifs, "Renouvellement de Certificat Médical (M-1)");
+                $verifyCount++;
+            }
+            if ($coach['notify_renewal_verify_push']) {
+                $pusher->sendToUser($coach['id'], 'Vérification Requise', count($certifs) . " adhérent(s) doivent renouveler leur certif. méd. le mois prochain.");
+            }
+        }
+        echo "    -> {$verifyCount} alerte(s) de vérification de certificat envoyée(s) aux coachs.\n";
+    }
 
     // =========================================================================
     // 5. EXPIRATION DES PAIEMENTS (J+1) ET ALERTES COACHS
@@ -184,23 +235,27 @@ try {
 
         // Alerter les coachs/admins qui ont coché l'option
         $stmtAlertCoachs = $db->prepare("
-            SELECT p.id, p.first_name, p.email
+            SELECT p.id, p.first_name, p.email, p.notify_expired_payment_email, p.notify_expired_payment_push
             FROM profiles p
             JOIN user_roles ur ON p.id = ur.user_id
             WHERE ur.role IN ('admin', 'coach') 
-              AND p.notify_expired_payment_email = 1
+              AND (p.notify_expired_payment_email = 1 OR p.notify_expired_payment_push = 1)
         ");
         $stmtAlertCoachs->execute();
         $alertCoachs = $stmtAlertCoachs->fetchAll(PDO::FETCH_ASSOC);
 
         $alertsSent = 0;
         foreach ($alertCoachs as $coach) {
-            if (!empty($coach['email'])) {
+            if ($coach['notify_expired_payment_email'] && !empty($coach['email'])) {
                 $success = $mailer->sendExpiredPaymentAlert($coach['email'], $coach['first_name'], $expiredClients);
                 if ($success) $alertsSent++;
             }
+            if ($coach['notify_expired_payment_push']) {
+                $c = count($expiredClients);
+                $pusher->sendToUser($coach['id'], 'Alerte Expiration', "{$c} abonnement(s) ont expiré aujourd'hui (Paiement en attente).");
+            }
         }
-        echo "    -> {$alertsSent} alerte(s) d'expiration envoyée(s) aux coachs.\n";
+        echo "    -> {$alertsSent} alerte(s) d'expiration envoyée(s) aux coachs (Email/Push).\n";
     } else {
         echo "    -> Aucun nouveau paiement expiré aujourd'hui.\n";
     }

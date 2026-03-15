@@ -282,6 +282,41 @@ class MailerService
     }
 
     /**
+     * Alerte un coach/admin pour vérification de documents (renouvellements, certificats).
+     */
+    public function sendDocumentVerificationAlert(string $toEmail, string $coachName, array $clients, string $reason): bool
+    {
+        try {
+            $mail = $this->getMailer();
+            $mail->addAddress($toEmail, $coachName);
+            
+            $mail->isHTML(true);
+            $mail->Subject = "Vérification requise : $reason";
+            
+            $body = "<h2>Bonjour $coachName,</h2>";
+            $body .= "<p>Les adhérents suivants nécessitent une vérification concernant : <strong>$reason</strong></p>";
+            
+            $body .= "<ul>";
+            foreach ($clients as $client) {
+                $name = $client['first_name'] . (isset($client['last_name']) ? ' ' . $client['last_name'] : '');
+                $body .= "<li><strong>{$name}</strong></li>";
+            }
+            $body .= "</ul>";
+            
+            $body .= "<p>Veuillez faire le point avec eux lors de leur prochaine venue.</p>";
+            $body .= "<br><p>Le système {$this->appName}</p>";
+            
+            $mail->Body = $body;
+            $mail->AltBody = strip_tags(str_replace(['<br>', '</li>', '</p>'], ["\n", "\n", "\n\n"], $body));
+            
+            return $mail->send();
+        } catch (Exception $e) {
+            error_log("Mailer Error (Verification Alert): {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    /**
      * Envoie un e-mail personnalisable (campagne d'e-mails)
      */
     public function sendCustomCampaign(string $toEmail, string $firstName, string $subject, string $content): bool
