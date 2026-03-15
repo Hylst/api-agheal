@@ -71,7 +71,7 @@ class ClientController
      */
     public function update(string $id): void
     {
-        Auth::requireRole(['admin', 'coach']);
+        $currentUser = Auth::requireRole(['admin', 'coach']);
 
         $data = json_decode(file_get_contents('php://input'), true);
 
@@ -99,14 +99,7 @@ class ClientController
             $values
         );
 
-        // Historisation si le statut passe à 'a_jour'
-        if (isset($data['payment_status']) && $data['payment_status'] === 'a_jour') {
-            $currentUser = Auth::requireAuth();
-            $db->query(
-                "INSERT INTO payments_history (user_id, payment_date, renewal_date, received_by) VALUES (?, CURRENT_DATE, ?, ?)",
-                [$id, $data['renewal_date'] ?? null, $currentUser['sub']]
-            );
-        }
+        // Historisation gérée exclusivement via Payments.tsx désormais pour garantir l'intégrité des données (montant, méthode)
 
         http_response_code(200);
         echo json_encode(['message' => 'Client mis à jour']);
