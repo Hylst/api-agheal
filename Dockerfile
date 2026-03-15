@@ -1,4 +1,4 @@
-FROM php:8.1-apache
+FROM php:8.2-apache
 
 # Activer le mod_rewrite d'Apache pour le routeur PHP (public/index.php)
 RUN a2enmod rewrite
