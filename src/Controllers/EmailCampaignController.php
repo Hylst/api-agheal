@@ -38,8 +38,8 @@ class EmailCampaignController {
      * Pour Admin/Coach : Créer une nouvelle campagne d'e-mails
      */
     public function create() {
-        $user = Auth::requireAuth();
-        Auth::requireRole(['admin', 'coach']);
+        // requireRole vérifie l'auth ET le rôle, et retourne le payload JWT
+        $user = Auth::requireRole(['admin', 'coach']);
 
         $data = json_decode(file_get_contents('php://input'), true);
 
