@@ -122,6 +122,7 @@ $routes = [
 
     // ── Admin ──────────────────────────────────────────
     'GET /admin/users'                          => ['AdminController', 'getUsers'],
+    'GET /admin/coaches'                        => ['AdminController', 'getCoaches'],
     'PUT /admin/users/{id}/status'              => ['AdminController', 'updateStatus'],
     'POST /admin/users/{id}/roles'              => ['AdminController', 'addRole'],
     'DELETE /admin/users/{id}/roles/{role}'     => ['AdminController', 'removeRole'],

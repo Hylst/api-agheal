@@ -51,6 +51,36 @@ class AdminController
     }
 
     /**
+     * GET /admin/coaches
+     * Retourne les utilisateurs ayant le rôle coach ou admin (pour le sélecteur "Reçu par" dans Règlements)
+     */
+    public function getCoaches(): void
+    {
+        Auth::requireRole(['admin', 'coach']);
+
+        $db = Database::getInstance();
+
+        $sql = "
+            SELECT DISTINCT
+                p.id,
+                p.first_name,
+                p.last_name,
+                u.email
+            FROM profiles p
+            LEFT JOIN users u ON u.id = p.id
+            JOIN user_roles ur ON ur.user_id = p.id AND ur.role IN ('admin', 'coach')
+            WHERE p.statut_compte = 'actif'
+            ORDER BY p.last_name, p.first_name
+        ";
+
+        $stmt = $db->query($sql);
+        $coaches = $stmt->fetchAll();
+
+        http_response_code(200);
+        echo json_encode(['coaches' => $coaches]);
+    }
+
+    /**
      * PUT /admin/users/{id}/status
      * Change le statut d'un compte (actif | bloque)
      */
