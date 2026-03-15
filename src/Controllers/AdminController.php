@@ -112,7 +112,7 @@ class AdminController
 
         // Vérifie si le rôle existe déjà
         $stmt = $db->query(
-            "SELECT id FROM user_roles WHERE user_id = ? AND role = ?",
+            "SELECT 1 FROM user_roles WHERE user_id = ? AND role = ?",
             [$id, $role]
         );
 
