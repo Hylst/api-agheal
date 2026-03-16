@@ -110,29 +110,51 @@ class GoogleAuthController
             // Connexion : utilisateur existant
             $userId = $existingUser['id'];
         } else {
-            // Inscription : crée le compte (sans mot de passe — Google only)
+            // Inscription : crée le compte (sans mot de passe — Google uniquement)
             $nameParts = explode(' ', $googleName, 2);
             $firstName = $nameParts[0] ?? '';
             $lastName  = $nameParts[1] ?? '';
 
-            $db->query(
-                "INSERT INTO users (email, password_hash, created_at) VALUES (?, '', NOW())",
-                [$googleEmail]
-            );
-            $userId = $db->lastInsertId();
-
-            // Crée le profil associé
-            $db->query(
-                "INSERT INTO profiles (id, first_name, last_name, statut_compte, created_at)
-                 VALUES (?, ?, ?, 'actif', NOW())",
-                [$userId, $firstName, $lastName]
+            // Générer un UUID v4 (car users.id n'est pas auto-incrémenté)
+            $userId = sprintf(
+                '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                mt_rand(0, 0xffff),
+                mt_rand(0, 0x0fff) | 0x4000,
+                mt_rand(0, 0x3fff) | 0x8000,
+                mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
             );
 
-            // Role par défaut : adhérent
-            $db->query(
-                "INSERT IGNORE INTO user_roles (user_id, role) VALUES (?, 'adherent')",
-                [$userId]
-            );
+            try {
+                $db->beginTransaction();
+
+                $db->query(
+                    "INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, '', NOW())",
+                    [$userId, $googleEmail]
+                );
+
+                // Crée le profil associé
+                $db->query(
+                    "INSERT INTO profiles (id, first_name, last_name, statut_compte, updated_at)
+                     VALUES (?, ?, ?, 'actif', NOW())",
+                    [$userId, $firstName, $lastName]
+                );
+
+                // Role par défaut : adhérent
+                $db->query(
+                    "INSERT IGNORE INTO user_roles (user_id, role) VALUES (?, 'adherent')",
+                    [$userId]
+                );
+
+                $db->commit();
+            } catch (\Exception $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                error_log("Google Auth Signup Error: " . $e->getMessage());
+                header('Location: ' . $errorUrl . '&reason=db_error', true, 302);
+                exit;
+            }
         }
 
         // ── Récupère les rôles pour le JWT ───────────────────────────────────

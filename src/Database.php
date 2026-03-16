@@ -88,6 +88,14 @@ class Database
     }
 
     /**
+     * Vérifie si une transaction est en cours.
+     */
+    public function inTransaction(): bool
+    {
+        return self::$pdo->inTransaction();
+    }
+
+    /**
      * Prépare une requête SQL (pour compatibilité avec l'ancien code).
      */
     public function prepare(string $sql): \PDOStatement
