@@ -79,9 +79,11 @@ $method = $_SERVER['REQUEST_METHOD'];
 // Format : 'METHODE /chemin/{param}' => [ControllerClass, 'method', [params_en_ordre]]
 $routes = [
     // ── Auth ──────────────────────────────────────────
-    'POST /auth/login'              => ['AuthController',         'login'],
-    'POST /auth/signup'             => ['AuthController',         'signup'],
-    'POST /auth/reset-password'     => ['AuthController',         'resetPassword'],
+    'POST /auth/login'              => ['AuthController',       'login'],
+    'POST /auth/signup'             => ['AuthController',       'signup'],
+    'POST /auth/reset-password'     => ['AuthController',       'resetPassword'],
+    'GET /auth/google'              => ['GoogleAuthController', 'redirect'],
+    'GET /auth/google/callback'     => ['GoogleAuthController', 'callback'],
 
     // ── Profiles ───────────────────────────────────────
     'GET /profiles/me'              => ['ProfileController',      'me'],
