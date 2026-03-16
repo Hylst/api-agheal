@@ -133,16 +133,16 @@ class GoogleAuthController
                     [$userId, $googleEmail]
                 );
 
-                // Crée le profil associé
+                // Upsert le profil associé (le trigger a peut-être déjà inséré une ligne vide)
                 $db->query(
-                    "INSERT INTO profiles (id, first_name, last_name, statut_compte, updated_at)
+                    "REPLACE INTO profiles (id, first_name, last_name, statut_compte, updated_at)
                      VALUES (?, ?, ?, 'actif', NOW())",
                     [$userId, $firstName, $lastName]
                 );
 
-                // Role par défaut : adhérent
+                // Role par défaut : adhérent (le trigger a peut-être déjà inséré)
                 $db->query(
-                    "INSERT IGNORE INTO user_roles (user_id, role) VALUES (?, 'adherent')",
+                    "REPLACE INTO user_roles (user_id, role) VALUES (?, 'adherent')",
                     [$userId]
                 );
 
