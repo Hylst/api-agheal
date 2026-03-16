@@ -16,6 +16,7 @@ require_once __DIR__ . '/../src/Controllers/SessionTypeController.php';
 require_once __DIR__ . '/../src/Controllers/RegistrationController.php';
 require_once __DIR__ . '/../src/Controllers/CommunicationController.php';
 require_once __DIR__ . '/../src/Controllers/PushController.php';
+require_once __DIR__ . '/../src/Controllers/GoogleAuthController.php';
 require_once __DIR__ . '/../src/Controllers/EmailCampaignController.php';
 require_once __DIR__ . '/../src/Controllers/HistoryController.php';
 require_once __DIR__ . '/../src/Controllers/PaymentController.php';
