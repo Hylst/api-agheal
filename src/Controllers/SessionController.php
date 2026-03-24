@@ -132,8 +132,8 @@ class SessionController
                 }
 
                 $db->query(
-                    "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, min_people, max_people, min_people_blocking, max_people_blocking, equipment_coach, equipment_clients, equipment_location, status, description, created_at, created_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
+                    "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, min_people, max_people, min_people_blocking, max_people_blocking, equipment_coach, equipment_clients, equipment_location, status, description, created_at, created_by, limit_registration_7_days)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)",
                     [
                         $session['title'],
                         $session['date'],
@@ -151,7 +151,8 @@ class SessionController
                         $session['equipment_location'] ?? null,
                         $session['status']         ?? 'published',
                         $session['description']    ?? null,
-                        Auth::getUserId()
+                        Auth::getUserId(),
+                        !empty($session['limit_registration_7_days']) ? 1 : 0
                     ]
                 );
             }
@@ -208,7 +209,8 @@ class SessionController
             'title', 'date', 'start_time', 'end_time', 'type_id', 'location_id', 
             'capacity', 'status', 'description',
             'min_people', 'max_people', 'min_people_blocking', 'max_people_blocking',
-            'equipment_coach', 'equipment_clients', 'equipment_location'
+            'equipment_coach', 'equipment_clients', 'equipment_location',
+            'limit_registration_7_days'
         ];
         $updates = [];
         $values  = [];
