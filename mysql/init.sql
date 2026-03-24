@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
     `equipment_coach` TEXT DEFAULT NULL,
     `equipment_clients` TEXT DEFAULT NULL,
     `status` VARCHAR(20) DEFAULT 'published',
+    `limit_registration_7_days` TINYINT(1) NOT NULL DEFAULT 0,
     `created_by` CHAR(36) DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -199,10 +200,13 @@ CREATE TABLE IF NOT EXISTS `registrations` (
     `id` CHAR(36) NOT NULL DEFAULT (UUID()),
     `session_id` CHAR(36) NOT NULL,
     `user_id` CHAR(36) NOT NULL,
+    `attended` TINYINT(1) NOT NULL DEFAULT 0,
+    `attended_at` TIMESTAMP NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_registrations_session_user` (`session_id`, `user_id`),
-    KEY `fk_registrations_user` (`user_id`)
+    KEY `fk_registrations_user` (`user_id`),
+    KEY `idx_registrations_attended` (`session_id`, `attended`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -366,6 +370,7 @@ SELECT
     s.id, s.title, s.type_id, s.description, s.location_id,
     s.date, s.start_time, s.end_time,
     s.min_people, s.max_people, s.capacity,
+    s.limit_registration_7_days,
     s.equipment_location, s.equipment_coach, s.equipment_clients,
     s.status, s.created_by, s.created_at, s.updated_at,
     st.name AS type_name,
@@ -373,11 +378,43 @@ SELECT
     l.name AS location_name,
     l.address AS location_address,
     CONCAT(p.first_name, ' ', p.last_name) AS created_by_name,
-    (SELECT COUNT(*) FROM registrations r WHERE r.session_id = s.id) AS registration_count
+    p.email AS coach_email,
+    (SELECT COUNT(*) FROM registrations r WHERE r.session_id = s.id) AS registration_count,
+    (SELECT COUNT(*) FROM registrations r WHERE r.session_id = s.id AND r.attended = 1) AS attended_count
 FROM sessions s
 LEFT JOIN session_types st ON s.type_id = st.id
 LEFT JOIN locations l ON s.location_id = l.id
 LEFT JOIN profiles p ON s.created_by = p.id;
+
+-- Vue historique des séances avec présences (pour statistiques futures)
+DROP VIEW IF EXISTS `v_session_history`;
+CREATE VIEW `v_session_history` AS
+SELECT
+    s.id AS session_id,
+    s.title,
+    s.date,
+    s.start_time,
+    s.end_time,
+    st.name AS session_type,
+    l.name AS location,
+    CONCAT(coach.first_name, ' ', coach.last_name) AS coach_name,
+    coach.id AS coach_id,
+    coach.email AS coach_email,
+    r.user_id AS member_id,
+    CONCAT(m.first_name, ' ', m.last_name) AS member_name,
+    m.email AS member_email,
+    r.attended,
+    r.attended_at,
+    r.created_at AS registered_at
+FROM sessions s
+LEFT JOIN session_types st ON st.id = s.type_id
+LEFT JOIN locations l ON l.id = s.location_id
+LEFT JOIN profiles coach ON coach.id = s.created_by
+LEFT JOIN registrations r ON r.session_id = s.id
+LEFT JOIN profiles m ON m.id = r.user_id
+WHERE s.status != 'draft'
+ORDER BY s.date DESC, s.start_time DESC, m.last_name ASC;
+
 
 -- =============================================================================
 -- 10. DONNÉES INITIALES

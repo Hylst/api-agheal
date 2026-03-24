@@ -1,0 +1,3 @@
+# Fichiers de logs physiques des séances (générés par AttendanceController)
+# Structure : logs/sessions/YYYY-MM/session-YYYY-MM-DD-{id}.json
+logs/sessions/
