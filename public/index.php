@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/Controllers/EmailCampaignController.php';
 require_once __DIR__ . '/../src/Controllers/HistoryController.php';
 require_once __DIR__ . '/../src/Controllers/PaymentController.php';
 require_once __DIR__ . '/../src/Controllers/AttendanceController.php';
+require_once __DIR__ . '/../src/Controllers/StatsController.php';
 
 use Dotenv\Dotenv;
 
@@ -101,10 +102,21 @@ $routes = [
     'PUT /sessions/{id}'            => ['SessionController',      'update'],
 
     // ── Attendance ─────────────────────────────────────
-    'GET /sessions/{sessionId}/attendance'           => ['AttendanceController', 'getAttendance'],
-    'PUT /sessions/{sessionId}/attendance'           => ['AttendanceController', 'updateAttendance'],
-    'GET /sessions/{sessionId}/attendance/candidates'=> ['AttendanceController', 'getCandidates'],
-    'DELETE /sessions/{id}'         => ['SessionController',      'delete'],
+    'GET /sessions/{sessionId}/attendance'            => ['AttendanceController', 'getAttendance'],
+    'PUT /sessions/{sessionId}/attendance'            => ['AttendanceController', 'updateAttendance'],
+    'GET /sessions/{sessionId}/attendance/candidates' => ['AttendanceController', 'getCandidates'],
+    'DELETE /sessions/{id}'                           => ['SessionController',    'delete'],
+
+    // ── Stats & Logs ───────────────────────────────────
+    'GET /stats/overview'                  => ['StatsController', 'overview'],
+    'GET /stats/sessions'                  => ['StatsController', 'sessionHistory'],
+    'GET /stats/sessions/{sessionId}/detail' => ['StatsController', 'sessionDetail'],
+    'GET /stats/members'                   => ['StatsController', 'memberStats'],
+    'GET /stats/payments'                  => ['StatsController', 'paymentStats'],
+    'GET /stats/attendance'                => ['StatsController', 'attendanceStats'],
+    'GET /stats/logs'                      => ['StatsController', 'getLogs'],
+    'GET /stats/logs/{logId}/download'     => ['StatsController', 'downloadLog'],
+    'GET /stats/logs/export-csv'           => ['StatsController', 'exportSessionsCsv'],
 
     // ── Registrations ──────────────────────────────────
     'GET /registrations/me'         => ['RegistrationController', 'getMyRegistrations'],
