@@ -18,6 +18,12 @@ class SessionController
         $whereClause = ($status === 'all') ? '1=1' : "s.status = ?";
         $params = ($status === 'all') ? [] : [$status];
 
+        // Pour la vue publique on exclut les séances déjà terminées
+        // La vue coach (status=all) conserve tout l'historique
+        if ($status !== 'all') {
+            $whereClause .= " AND CONCAT(s.date, ' ', s.end_time) >= NOW()";
+        }
+
         $sql = "
             SELECT 
                 s.*,

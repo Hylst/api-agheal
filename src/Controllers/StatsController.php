@@ -536,8 +536,9 @@ class StatsController
     private function requireCoachOrAdmin(): void
     {
         $currentUser = Auth::requireAuth();
-        $role = $currentUser['role'] ?? 'adherent';
-        if (!in_array($role, ['coach', 'admin'])) {
+        // Auth::requireAuth() retourne roles comme un tableau (ex: ['coach', 'adherent'])
+        $userRoles = $currentUser['roles'] ?? [];
+        if (empty(array_intersect($userRoles, ['coach', 'admin']))) {
             http_response_code(403);
             echo json_encode(['error' => 'Accès réservé aux coachs et administrateurs']);
             exit;
