@@ -1,9 +1,9 @@
 # API AGHeal - Backend PHP
 
-> **Version actuelle : 1.5.1** | [Voir le CHANGELOG](./CHANGELOG.md)
+> **Version actuelle : 1.9.1** | [Voir le CHANGELOG](./CHANGELOG.md)
 
 Bienvenue sur le dépôt du backend de l'application **AGHeal**. 
-Cette API est développée en PHP 8.1+ et assure la gestion de la base de données MariaDB, l'authentification JWT et la logique métier du projet.
+Cette API est développée en PHP 8.1+ et assure la gestion de la base de données MariaDB, l'authentification JWT (Google OAuth 2.0 inclus) et la logique métier du projet.
 
 ## 👤 Auteur & Droits
 **Geoffroy Streit** - Développeur apprenant.
@@ -34,6 +34,17 @@ Le système inclut un script consolidé gérant toutes les notifications asynchr
     - **Certificat Médical** : Rappel M-1 par email pour les adhérents.
     - **Auto-Expiration** : À J+1 de la date de renouvellement, le statut passe à "en_attente" et une alerte est envoyée aux coachs.
     - **Nouveaux Créneaux** : Notification immédiate lors de la publication (via SessionController).
+    
+- `scripts/cron_hourly.php` : À exécuter toutes les heures.
+    - **E-mails Programmables** : Exécution des campagnes d'e-mails différées (Communications in-app).
+
+## 🧩 Contrôleurs Principaux (API)
+- `AuthController` & `GoogleAuthController` : Authentification et sessions.
+- `SessionController` & `AttendanceController` : Gestion des séances, inscriptions, walk-ins et appel.
+- `StatsController` : Points d'accès pour les KPIs, pyramides d'âges, logs d'appel et export CSV/JSON.
+- `PaymentController` : Gestion complète de l'historique et des statuts de règlement.
+- `CommunicationController` & `EmailCampaignController` : Messages in-app ciblés et différés.
+- `PushController` : Gestion des web push VAPID.
 
 ## 🚀 Installation locale
 1. Clonez le dépôt.

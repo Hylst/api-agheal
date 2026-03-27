@@ -85,7 +85,9 @@ class RegistrationController
 
         // Vérifie que la séance existe et est publiée
         $stmt = $db->query(
-            "SELECT id, capacity, max_people, max_people_blocking FROM sessions WHERE id = ? AND status = 'published'",
+            "SELECT id, date, limit_registration_7_days, capacity, max_people, max_people_blocking 
+             FROM sessions 
+             WHERE id = ? AND status = 'published'",
             [$sessionId]
         );
         $session = $stmt->fetch();
@@ -94,6 +96,20 @@ class RegistrationController
             http_response_code(404);
             echo json_encode(['error' => 'Séance introuvable ou non disponible']);
             return;
+        }
+
+        // Vérification limite des 7 jours si activée
+        if (!empty($session['limit_registration_7_days'])) {
+            $sessionDate = new DateTime($session['date']);
+            $now = new DateTime();
+            $now->setTime(0, 0, 0); // Comparer à partir de minuit
+            
+            $interval = $now->diff($sessionDate);
+            if ($interval->invert === 0 && $interval->days > 7) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Inscription impossible à plus de 7 jours en avance']);
+                return;
+            }
         }
 
         // Vérifie que l'utilisateur n'est pas déjà inscrit

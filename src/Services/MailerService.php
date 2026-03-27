@@ -350,4 +350,36 @@ class MailerService
             return false;
         }
     }
+
+    /**
+     * Envoie l'email de réinitialisation de mot de passe.
+     * @param string $toEmail  Adresse de l'utilisateur
+     * @param string $resetLink Lien complet avec token (valide 1h)
+     */
+    public function sendPasswordReset(string $toEmail, string $resetLink): bool
+    {
+        try {
+            $mail = $this->getMailer();
+            $mail->addAddress($toEmail);
+
+            $mail->isHTML(true);
+            $mail->Subject = "[{$this->appName}] Réinitialisation de votre mot de passe";
+
+            $body  = "<h2>Réinitialisation de votre mot de passe</h2>";
+            $body .= "<p>Vous avez demandé la réinitialisation de votre mot de passe sur <strong>{$this->appName}</strong>.</p>";
+            $body .= "<p>Cliquez sur le lien ci-dessous pour choisir un nouveau mot de passe.<br>";
+            $body .= "Ce lien est <strong>valable 1 heure</strong> et ne peut être utilisé qu'une seule fois.</p>";
+            $body .= "<p style='margin:24px 0;'><a href='{$resetLink}' style='background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;'>Réinitialiser mon mot de passe</a></p>";
+            $body .= "<p style='color:#888;font-size:12px;'>Si vous n'avez pas demandé cette réinitialisation, ignorez simplement cet email. Votre mot de passe ne sera pas modifié.</p>";
+            $body .= "<p>L'équipe {$this->appName}</p>";
+
+            $mail->Body    = $body;
+            $mail->AltBody = "Réinitialisation de mot de passe {$this->appName}\n\nLien (valide 1h) :\n{$resetLink}\n\nSi vous n'avez pas fait cette demande, ignorez cet email.";
+
+            return $mail->send();
+        } catch (Exception $e) {
+            error_log("Mailer Error (Password Reset): {$e->getMessage()}");
+            return false;
+        }
+    }
 }

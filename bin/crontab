@@ -1,6 +1,8 @@
-# Rappels de séance tous les jours à 8h00
-0 8 * * * /usr/local/bin/php /app/bin/send-reminders.php >> /var/log/cron.log 2>&1
+# ── Rappels de séance & abonnements : tous les jours ────────────────────────
+0 7 * * * /usr/local/bin/php /app/scripts/cron_daily.php >> /var/log/cron_daily.log 2>&1
 
-# Note: On peut ajouter d'autres tâches ici (ex: cleanup de sessions expirées)
-# Vérification des abonnements tous les jours à 9h00
-0 9 * * * /usr/local/bin/php /app/bin/check-subscriptions.php >> /var/log/cron.log 2>&1
+# ── Rappels horaires (emails différés) ───────────────────────────────────────
+0 * * * * /usr/local/bin/php /app/scripts/cron_hourly.php >> /var/log/cron_hourly.log 2>&1
+
+# ── Purge RGPD des données > 2 ans : 1er de chaque mois à 01h00 ─────────────
+0 1 1 * * /usr/local/bin/php /app/scripts/cron_purge_logs.php >> /var/log/cron_purge.log 2>&1

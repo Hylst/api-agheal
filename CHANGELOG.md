@@ -1,5 +1,42 @@
 # Changelog - API AGHeal
 
+## [1.9.1] - 26 Mars 2026
+
+### 🔧 Architecture & SQL Centralisés
+- Réécriture majeure de `mysql/seed.sql` : rendu idempotent, nettoyage de schéma, UUID valides.
+- Centralisation source : fin des doublons avec le front.
+- Correction `StatsController.php` : Erreur 403 coach corrigée par l'usage strict de `array_intersect` sur le tableau JWT `roles`.
+- Correction `SessionController.php` : Masquage automatique garanti des séances passées (filtrage).
+
+## [1.9.0] - Mars 2026
+
+### ✨ Présences, Walk-ins & Statistiques
+- `AttendanceController` : Nouvel endpoint pour l'appel de présences + walk-ins + horodatage d'arrivée.
+- Enregistrement immédiat dans la table d'audit `logs` lors d'un appel.
+- `StatsController` complet (8 endpoints) avec agrégations avancées, CSV et fichiers JSON d'appels.
+
+## [1.8.5] - Mars 2026
+
+### 🔐 Google OAuth 2.0
+- Ajout de `GoogleAuthController` (flux OAuth complet).
+
+## [1.8.0] - Mars 2026
+
+### 💵 Gestion Règlements
+- `PaymentController` : CRUD complet de la facturation.
+- Ajout modes (chèque, espèce, virement) dans `payments_history`.
+
+## [1.5.5] - Mars 2026
+
+### 📧 Communications Avancées
+- Push VAPID via `PushController`.
+- Communications in-app, urgences, campagnes programmables et e-mails avec différé horaire.
+
+## [1.5.3] - Mars 2026
+
+### 🐛 Bug Fixes
+- Correction 500 sur les endpoints d'inscription/désinscription. Types stricts de paramètres corrigés.
+
 ## [1.5.1] - Mars 2026
 
 ### ✨ Certificats & Alertes Expiration

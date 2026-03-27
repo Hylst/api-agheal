@@ -2,6 +2,8 @@
 // src/Controllers/AuthController.php
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Helpers/Sanitizer.php';
+require_once __DIR__ . '/../Services/MailerService.php';
 
 use Firebase\JWT\JWT;
 
@@ -13,12 +15,18 @@ class AuthController
     public function login(): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
-        $email    = trim($data['email'] ?? '');
+        $email    = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
         $password = $data['password'] ?? '';
 
         if (empty($email) || empty($password)) {
             http_response_code(400);
             echo json_encode(['error' => 'Email et mot de passe requis']);
+            return;
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Format d\'email invalide']);
             return;
         }
 
@@ -72,14 +80,26 @@ class AuthController
     public function signup(): void
     {
         $data      = json_decode(file_get_contents('php://input'), true);
-        $email     = trim($data['email'] ?? '');
+        $email     = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
         $password  = $data['password'] ?? '';
-        $firstName = $data['first_name'] ?? $data['data']['first_name'] ?? '';
-        $lastName  = $data['last_name']  ?? $data['data']['last_name']  ?? '';
+        $firstName = htmlspecialchars(strip_tags($data['first_name'] ?? $data['data']['first_name'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $lastName  = htmlspecialchars(strip_tags($data['last_name']  ?? $data['data']['last_name']  ?? ''), ENT_QUOTES, 'UTF-8');
 
         if (empty($email) || empty($password)) {
             http_response_code(400);
             echo json_encode(['error' => 'Email et mot de passe requis']);
+            return;
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Format d\'email invalide']);
+            return;
+        }
+
+        if (strlen($password) < 8) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Le mot de passe doit contenir au moins 8 caractères']);
             return;
         }
 
@@ -140,7 +160,7 @@ class AuthController
     public function resetPassword(): void
     {
         $data  = json_decode(file_get_contents('php://input'), true);
-        $email = trim($data['email'] ?? '');
+        $email = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
 
         if (empty($email)) {
             http_response_code(400);
@@ -148,14 +168,50 @@ class AuthController
             return;
         }
 
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Format d\'email invalide']);
+            return;
+        }
+
         // Pour la sécurité, toujours retourner 200 même si l'email n'existe pas
         // (évite l'énumération d'emails)
         $db = Database::getInstance();
-        $user = $db->query("SELECT id FROM users WHERE email = ?", [$email])->fetch();
+        $user = $db->query("SELECT id, email FROM users WHERE email = ?", [$email])->fetch();
 
         if ($user) {
-            // TODO: Envoyer email de réinitialisation via EmailService
-            error_log("Password reset requested for: $email (user: {$user['id']})");
+            // Générer un token sécurisé et l'enregistrer en base
+            $token     = bin2hex(random_bytes(32)); // 64 chars, cryptographiquement aléatoire
+            $tokenHash = hash('sha256', $token);
+            $expiresAt = date('Y-m-d H:i:s', time() + 3600); // Valide 1h
+
+            // Créer la table si elle n'existe pas encore (guard de robustesse)
+            $db->query("
+                CREATE TABLE IF NOT EXISTS password_resets (
+                    user_id   CHAR(36)     NOT NULL PRIMARY KEY,
+                    token     VARCHAR(64)  NOT NULL,
+                    expires_at DATETIME    NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+
+            // Upsert (1 token à la fois par utilisateur)
+            $db->query(
+                "REPLACE INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)",
+                [$user['id'], $tokenHash, $expiresAt]
+            );
+
+            // Construire le lien de reset
+            $frontendUrl = rtrim($_ENV['FRONTEND_URL'] ?? 'https://agheal.hylst.fr', '/');
+            $resetLink   = "{$frontendUrl}/reset-password?token={$token}&email=" . urlencode($email);
+
+            // Envoyer l'email via MailerService
+            try {
+                $mailer = new \App\Services\MailerService();
+                $mailer->sendPasswordReset($email, $resetLink);
+            } catch (Exception $eMailer) {
+                error_log("Password reset mailer error: " . $eMailer->getMessage());
+            }
         }
 
         http_response_code(200);
