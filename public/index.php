@@ -32,32 +32,42 @@ if (file_exists(__DIR__ . '/../.env')) {
 }
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
-$allowedOrigins = [
+// ⚠ Ne jamais utiliser '*' en production avec `credentials: true`.
+// La liste des origines autorisées est complète et explicite.
+$allowedOrigins = array_filter([
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:8080',
     'http://localhost:3000',
-    'https://agheal.hylst.fr' // URL de production
-];
+    'https://agheal.hylst.fr',
+    rtrim(getenv('FRONTEND_URL') ?: ($_ENV['FRONTEND_URL'] ?? ''), '/'),
+]);
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if (in_array($origin, $allowedOrigins) || empty($origin)) {
-    header("Access-Control-Allow-Origin: " . ($origin ?: '*'));
+
+if ($origin !== '' && in_array(rtrim($origin, '/'), $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header('Vary: Origin');
+} elseif ($origin === '') {
+    // Appel sans origin (Postman, cron, server-to-server) : on n'envoie pas de header CORS.
+    // Les navigateurs envoient TOUJOURS Origin, donc pas de risque de fuite XSS.
+    true; // no-op conscient
 } else {
-    $appFrontendUrl = getenv('FRONTEND_URL') ?: ($_ENV['FRONTEND_URL'] ?? '');
-    if ($appFrontendUrl && rtrim($origin, '/') === rtrim($appFrontendUrl, '/')) {
-        header("Access-Control-Allow-Origin: $origin");
-    }
+    // Origine inconnue → refus explicite.
+    http_response_code(403);
+    echo json_encode(['error' => 'Origine non autorisée']);
+    exit;
 }
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Max-Age: 3600'); // Cache preflight 1h
 
 // Gérer les requêtes OPTIONS (preflight)
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+    http_response_code(204);
     exit;
 }
 

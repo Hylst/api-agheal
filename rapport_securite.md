@@ -158,36 +158,58 @@ Le script `scripts/cron_purge_logs.php` s'exécute automatiquement **le 1er de c
 
 ---
 
-## 10. En-têtes HTTP de Sécurité
+## 10. En-têtes HTTP de Sécurité – Configuration Traefik (Coolify)
 
-> [!WARNING]
-> Ce point n'est pas géré par la couche applicative PHP mais doit être configuré dans le proxy Nginx/Caddy de Coolify.
+Votre déploiement Coolify utilise **Traefik** comme proxy inverse (visible via les `Container Labels` dans le screenshot). Vous n'avez pas d'onglet "Proxy" dédié — tout se configure via ces labels directement dans Coolify.
 
-Les en-têtes à s'assurer d'avoir en production :
+**Procédure** : Dans Coolify → votre projet `agheal-api` → onglet **Configuration** → section **Container Labels** → ajouter les labels suivants :
 
 ```
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-Content-Security-Policy: default-src 'self'; ...
-Referrer-Policy: strict-origin-when-cross-origin
+traefik.http.middlewares.agheal-headers.headers.frameDeny=true
+traefik.http.middlewares.agheal-headers.headers.contentTypeNosniff=true
+traefik.http.middlewares.agheal-headers.headers.browserXssFilter=true
+traefik.http.middlewares.agheal-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+traefik.http.middlewares.agheal-headers.headers.stsSeconds=31536000
+traefik.http.middlewares.agheal-headers.headers.stsIncludeSubdomains=true
+traefik.http.middlewares.agheal-headers.headers.forceSTSHeader=true
+traefik.http.middlewares.agheal-headers.headers.customResponseHeaders.X-Robots-Tag=noindex,nofollow,nosnippet
+traefik.http.routers.agheal-https.middlewares=agheal-headers@docker
 ```
 
-**Comment les ajouter** : Dans Coolify, onglet « Proxy » ou dans un fichier de configuration Nginx attaché au service backend.
+> [!IMPORTANT]
+> Remplacez `agheal-https` par le nom exact du router Traefik visible dans vos Container Labels existants (ex: `https-0-cccg8as0000cwoc0hdwdg`). Vérifiez avec `docker ps` ou dans les logs Traefik si besoin.
+
+Ces en-têtes activent :
+- `X-Frame-Options: DENY` → anti-clickjacking
+- `X-Content-Type-Options: nosniff` → anti-MIME-sniffing
+- `X-XSS-Protection: 1; mode=block` → protection legacy XSS
+- `Strict-Transport-Security` → force HTTPS pour 1 an
+- `Referrer-Policy` → pas de fuite d'URL sensible
 
 ---
 
-## 11. Rate Limiting (Brute Force)
+## 11. Rate Limiting (Brute Force) – Configuration Traefik (Coolify)
 
-> [!WARNING]
-> L'API ne dispose pas actuellement de protection contre les attaques par force brute sur le endpoint `/auth/login`.
+Même principe : ajoutez ces labels dans Coolify → Container Labels du service **backend** (`agheal-api`).
 
-**Risque** : Un attaquant peut tenter des milliers de combinaisons mot de passe/email par seconde.
+```
+# Limite générale : 100 requêtes / 10 secondes par IP
+traefik.http.middlewares.agheal-ratelimit.rateLimit.average=100
+traefik.http.middlewares.agheal-ratelimit.rateLimit.burst=50
+traefik.http.middlewares.agheal-ratelimit.rateLimit.period=10s
 
-**Recommandations** :
-- **Coolify/Nginx** : Configurer `limit_req_zone` sur `/auth/login` (ex : max 10 req/min par IP).
-- **Applicatif** : Ajouter un compteur d'échecs en `cache` ou BDD et bloquer temporairement après 5 échecs.
-- **Bonus** : Implémenter un délai progressif (`sleep(1)` après échec d'authentification).
+# Appliquer UNIQUEMENT sur l'API (selon votre router Traefik actuel)
+traefik.http.routers.agheal-https.middlewares=agheal-headers@docker,agheal-ratelimit@docker
+```
+
+> [!TIP]
+> Pour durcir spécifiquement `/auth/login`, il faudrait configurer un deuxième middleware `rateLimit` avec des valeurs plus basses et l'appliquer uniquement sur ce path via une règle `PathPrefix`. C'est possible mais plus complexe ; la limite générale ci-dessus est déjà un bon filet de sécurité.
+
+**Comment l'activer** :
+1. Ouvrez Coolify → `agheal-api` → **Configuration**
+2. Scrollez vers le bas jusqu'à **Container Labels**
+3. Ajoutez les lignes ci-dessus en conservant vos labels Traefik existants
+4. Cliquez **Save** puis **Redeploy**
 
 ---
 
