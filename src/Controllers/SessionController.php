@@ -2,7 +2,8 @@
 // src/Controllers/SessionController.php
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
-require_once __DIR__ . '/../Services/MailerService.php';
+require_once __DIR__ . '/../Helpers/Sanitizer.php';
+use App\Services\MailerService;
 
 class SessionController
 {
@@ -141,22 +142,22 @@ class SessionController
                     "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, min_people, max_people, min_people_blocking, max_people_blocking, equipment_coach, equipment_clients, equipment_location, status, description, created_at, created_by, limit_registration_7_days)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)",
                     [
-                        $session['title'],
-                        $session['date'],
-                        $session['start_time'],
-                        $session['end_time'],
+                        Sanitizer::text($session['title'], 100),
+                        Sanitizer::date($session['date']),
+                        Sanitizer::time($session['start_time']),
+                        Sanitizer::time($session['end_time']),
                         $session['type_id']        ?? null,
                         $session['location_id']    ?? null,
-                        $session['max_people']     ?? null, // Map capacity to max_people temporarily
+                        $session['max_people']     ?? null,
                         $session['min_people']     ?? 1,
                         $session['max_people']     ?? 10,
                         isset($session['min_people_blocking']) ? (int)$session['min_people_blocking'] : 1,
                         isset($session['max_people_blocking']) ? (int)$session['max_people_blocking'] : 1,
-                        $session['equipment_coach']    ?? null,
-                        $session['equipment_clients']  ?? null,
-                        $session['equipment_location'] ?? null,
-                        $session['status']         ?? 'published',
-                        $session['description']    ?? null,
+                        Sanitizer::text($session['equipment_coach'] ?? '',    200),
+                        Sanitizer::text($session['equipment_clients'] ?? '',   200),
+                        Sanitizer::text($session['equipment_location'] ?? '', 200),
+                        Sanitizer::enum($session['status'] ?? 'published', ['draft','published','cancelled','completed']),
+                        Sanitizer::text($session['description'] ?? '', 1000),
                         Auth::getUserId(),
                         !empty($session['limit_registration_7_days']) ? 1 : 0
                     ]

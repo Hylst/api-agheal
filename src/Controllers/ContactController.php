@@ -1,6 +1,7 @@
 <?php
 // src/Controllers/ContactController.php
 require_once __DIR__ . '/../Services/EmailService.php';
+require_once __DIR__ . '/../Helpers/Sanitizer.php';
 use App\Services\EmailService;
 
 class ContactController
@@ -8,13 +9,13 @@ class ContactController
     public function send(): void
     {
         $data    = json_decode(file_get_contents('php://input'), true);
-        $name    = htmlspecialchars($data['name']    ?? 'Anonyme');
-        $email   = trim($data['email']   ?? '');
-        $message = trim($data['message'] ?? '');
+        $name    = Sanitizer::text($data['name']  ?? 'Anonyme', 100);
+        $email   = Sanitizer::email($data['email']   ?? '');
+        $message = Sanitizer::text($data['message'] ?? '', 2000);
 
-        if (empty($email) || empty($message)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'Email et message requis']);
+        if (empty($email)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Adresse email invalide']);
             return;
         }
 

@@ -259,10 +259,11 @@ try {
     $controller->$action(...$args);
 
 } catch (Throwable $e) {
+    $isDebug = (getenv('APP_ENV') ?: ($_ENV['APP_ENV'] ?? 'production')) === 'development';
     http_response_code(500);
     echo json_encode([
-        'error'   => $e->getMessage(),
-        'file'    => basename($e->getFile()),
-        'line'    => $e->getLine(),
+        'error' => $isDebug ? $e->getMessage() : 'Erreur interne du serveur',
+        'file'  => $isDebug ? basename($e->getFile()) : null,
+        'line'  => $isDebug ? $e->getLine() : null,
     ]);
 }

@@ -3,6 +3,7 @@
 
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Helpers/Sanitizer.php';
 
 class CommunicationController {
 
@@ -107,11 +108,11 @@ class CommunicationController {
             return;
         }
 
-        $targetType = $data['target_type'];
-        $targetId = ($targetType === 'all') ? null : ($data['target_id'] ?? null);
-        $content = $data['content'];
-        $isUrgent = isset($data['is_urgent']) ? (int)$data['is_urgent'] : 0;
-        $authorId = $user['sub'] ?? null;
+        $targetType = Sanitizer::enum($data['target_type'], ['all', 'user', 'group']);
+        $targetId   = ($targetType === 'all') ? null : ($data['target_id'] ?? null);
+        $content    = Sanitizer::text($data['content'], 2000);
+        $isUrgent   = isset($data['is_urgent']) ? (int)$data['is_urgent'] : 0;
+        $authorId   = $user['sub'] ?? null;
 
         if ($targetType !== 'all' && empty($targetId)) {
             http_response_code(400);
@@ -196,7 +197,7 @@ class CommunicationController {
             return;
         }
 
-        $content  = $data['content'];
+        $content  = Sanitizer::text($data['content'], 2000);
         $isUrgent = isset($data['is_urgent']) ? (int)$data['is_urgent'] : 0;
 
         try {

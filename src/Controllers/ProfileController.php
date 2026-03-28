@@ -2,6 +2,7 @@
 // src/Controllers/ProfileController.php
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Helpers/Sanitizer.php';
 
 class ProfileController
 {
@@ -92,8 +93,13 @@ class ProfileController
 
         foreach ($allowed as $field) {
             if (array_key_exists($field, $data)) {
+                // Sanitize les champs texte libre pour éviter XSS stocké
+                $textFields = ['first_name','last_name','phone','organization','remarks_health','additional_info'];
+                $value = in_array($field, $textFields, true)
+                    ? Sanitizer::text($data[$field], 255)
+                    : $data[$field];
                 $updates[] = "`$field` = ?";
-                $values[] = $data[$field];
+                $values[]  = $value;
             }
         }
 

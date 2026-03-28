@@ -2,9 +2,20 @@
 // src/Controllers/AdminController.php
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Repositories/BaseRepository.php';
+require_once __DIR__ . '/../Repositories/UserRepository.php';
+
+use App\Repositories\UserRepository;
 
 class AdminController
 {
+    private UserRepository $users;
+
+    public function __construct()
+    {
+        $this->users = new UserRepository();
+    }
+
     /**
      * GET /admin/users
      * Retourne tous les utilisateurs avec leurs rôles
@@ -12,70 +23,19 @@ class AdminController
     public function getUsers(): void
     {
         Auth::requireRole(['admin']);
-
-        $db = Database::getInstance();
-
-        $sql = "
-            SELECT 
-                p.id,
-                p.first_name,
-                p.last_name,
-                p.phone,
-                p.statut_compte,
-                p.created_at,
-                p.payment_status,
-                p.renewal_date,
-                u.email,
-                JSON_ARRAYAGG(
-                    JSON_OBJECT('role', ur.role)
-                ) as user_roles
-            FROM profiles p
-            LEFT JOIN users u ON u.id = p.id
-            LEFT JOIN user_roles ur ON ur.user_id = p.id
-            GROUP BY p.id, u.email
-            ORDER BY p.last_name, p.first_name
-        ";
-
-        $stmt = $db->query($sql);
-        $users = $stmt->fetchAll();
-
-        // Decode JSON user_roles
-        foreach ($users as &$user) {
-            $roles = json_decode($user['user_roles'] ?? '[]', true);
-            // Filter out null roles (user with no role yet)
-            $user['user_roles'] = array_values(array_filter($roles, fn($r) => $r['role'] !== null));
-        }
-
+        $users = $this->users->getAllWithRoles();
         http_response_code(200);
         echo json_encode($users);
     }
 
     /**
      * GET /admin/coaches
-     * Retourne les utilisateurs ayant le rôle coach ou admin (pour le sélecteur "Reçu par" dans Règlements)
+     * Retourne les utilisateurs ayant le rôle coach ou admin
      */
     public function getCoaches(): void
     {
         Auth::requireRole(['admin', 'coach']);
-
-        $db = Database::getInstance();
-
-        $sql = "
-            SELECT DISTINCT
-                p.id,
-                p.first_name,
-                p.last_name,
-                u.email
-            FROM profiles p
-            LEFT JOIN users u ON u.id = p.id
-            JOIN user_roles ur ON ur.user_id = p.id AND ur.role IN ('admin', 'coach')
-            WHERE p.statut_compte = 'actif'
-            ORDER BY p.last_name, p.first_name
-        ";
-
-        $stmt = $db->query($sql);
-        $coaches = $stmt->fetchAll();
-
+        $coaches = $this->users->getCoaches();
         http_response_code(200);
         echo json_encode(['coaches' => $coaches]);
     }
@@ -89,10 +49,10 @@ class AdminController
         $payload = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
 
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data   = json_decode(file_get_contents('php://input'), true);
         $status = $data['statut_compte'] ?? null;
 
-        if (!in_array($status, ['actif', 'bloque'])) {
+        if (!in_array($status, ['actif', 'bloque'], true)) {
             http_response_code(422);
             echo json_encode(['error' => 'Statut invalide. Valeurs acceptées : actif, bloque']);
             return;
@@ -105,15 +65,10 @@ class AdminController
             return;
         }
 
-        $db = Database::getInstance();
-        $db->query(
-            "UPDATE profiles SET statut_compte = ? WHERE id = ?",
-            [$status, $id]
-        );
-
+        $this->users->updateStatus($id, $status);
         $this->logAdminAction($currentUserId, 'update_user_status', [
             'target_user_id' => $id,
-            'new_status' => $status
+            'new_status'     => $status,
         ]);
 
         http_response_code(200);
@@ -126,40 +81,29 @@ class AdminController
      */
     public function addRole(string $id): void
     {
-        $payload = Auth::requireRole(['admin']);
+        $payload       = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
 
         $data = json_decode(file_get_contents('php://input'), true);
         $role = $data['role'] ?? null;
 
-        if (!in_array($role, ['admin', 'coach', 'adherent'])) {
+        if (!in_array($role, ['admin', 'coach', 'adherent'], true)) {
             http_response_code(422);
             echo json_encode(['error' => 'Rôle invalide. Valeurs acceptées : admin, coach, adherent']);
             return;
         }
 
-        $db = Database::getInstance();
+        $added = $this->users->addRole($id, $role);
 
-        // Vérifie si le rôle existe déjà
-        $stmt = $db->query(
-            "SELECT 1 FROM user_roles WHERE user_id = ? AND role = ?",
-            [$id, $role]
-        );
-
-        if ($stmt->rowCount() > 0) {
+        if (!$added) {
             http_response_code(200);
             echo json_encode(['message' => 'Ce rôle est déjà assigné']);
             return;
         }
 
-        $db->query(
-            "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
-            [$id, $role]
-        );
-
         $this->logAdminAction($currentUserId, 'add_user_role', [
             'target_user_id' => $id,
-            'role' => $role
+            'role'           => $role,
         ]);
 
         http_response_code(201);
@@ -172,38 +116,33 @@ class AdminController
      */
     public function removeRole(string $id, string $role): void
     {
-        $payload = Auth::requireRole(['admin']);
+        $payload       = Auth::requireRole(['admin']);
         $currentUserId = $payload['sub'] ?? null;
 
-        if (!in_array($role, ['admin', 'coach', 'adherent'])) {
+        if (!in_array($role, ['admin', 'coach', 'adherent'], true)) {
             http_response_code(422);
             echo json_encode(['error' => 'Rôle invalide']);
             return;
         }
 
-        // Sécurité métier : On ne peut pas retirer le rôle de base 'adherent'
+        // Sécurité métier : le rôle adherent est obligatoire
         if ($role === 'adherent') {
             http_response_code(422);
             echo json_encode(['error' => 'Le rôle "adherent" est obligatoire et ne peut être retiré']);
             return;
         }
 
-        // Sécurité critique : Empêcher un admin de se retirer son propre rôle admin (Lockout prevention)
+        // Sécurité critique : Lockout prevention
         if ($role === 'admin' && $id === $currentUserId) {
             http_response_code(403);
             echo json_encode(['error' => 'Vous ne pouvez pas vous retirer votre propre rôle administrateur']);
             return;
         }
 
-        $db = Database::getInstance();
-        $db->query(
-            "DELETE FROM user_roles WHERE user_id = ? AND role = ?",
-            [$id, $role]
-        );
-
+        $this->users->removeRole($id, $role);
         $this->logAdminAction($currentUserId, 'remove_user_role', [
             'target_user_id' => $id,
-            'role' => $role
+            'role'           => $role,
         ]);
 
         http_response_code(200);
@@ -216,7 +155,7 @@ class AdminController
     private function logAdminAction(?string $userId, string $action, array $details): void
     {
         try {
-            $db = Database::getInstance();
+            $db = \Database::getInstance();
             $db->query(
                 "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
                 [$userId, $action, json_encode($details)]

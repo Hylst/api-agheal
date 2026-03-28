@@ -13,7 +13,17 @@
     },
     "autoload": {
         "psr-4": {
-            "App\\": "src/"
+            "App\\": "src/",
+            "App\\Controllers\\": "src/Controllers/",
+            "App\\Services\\":    "src/Services/",
+            "App\\Helpers\\":     "src/Helpers/",
+            "App\\Repositories\\": "src/Repositories/",
+            "App\\Middleware\\":   "src/Middleware/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
         }
     }
 }

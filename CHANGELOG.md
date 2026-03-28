@@ -1,5 +1,37 @@
 # Changelog - API AGHeal
 
+## [1.9.2] - 28 Mars 2026
+
+### 🏗️ Refactoring & Séparation des Responsabilités (4 phases)
+
+**Phase 1 – Sécurité :**
+- `index.php` : Masquage `file`/`line` des messages d'erreur en production (`APP_ENV` guard).
+- `index.php` : CORS durci — suppression du fallback `*`, `403` explicite sur origines inconnues, `Vary: Origin`, preflight `204`.
+
+**Phase 2 – Sanitisation généralisée :**
+- `SessionController` : `Sanitizer::text/date/time/enum` sur tous les champs d'entrée (title, date, heure, équipements, statut).
+- `PaymentController` : `Sanitizer::date/positiveDecimal/enum` sur montant, dates et méthode.
+- `ProfileController` : `Sanitizer::text` sur phone, organization, remarks_health, additional_info.
+- `CommunicationController` : `Sanitizer::text` (content, 2000 car.) + `Sanitizer::enum` (target_type).
+- `ContactController` : `Sanitizer::email` strict (rejet 422 si invalide) + `Sanitizer::text` sur name/message.
+
+**Phase 3 – Couche Repository :**
+- `src/Repositories/BaseRepository.php` : Classe abstraite (query, fetchAll, fetchOne, execute, transactions).
+- `src/Repositories/UserRepository.php` : CRUD users/roles, getAllWithRoles, getCoaches, upsertPasswordReset.
+- `src/Repositories/ProfileRepository.php` : findById, update (allowlist), getGroups, updateNotifications.
+- `src/Repositories/PaymentRepository.php` : findAll (filtré), create, delete, toutes les agrégations du dashboard.
+- `src/Repositories/SessionRepository.php` : findAll, findById, createMany, update (allowlist), delete cascade, subscribers.
+- `PaymentController` : Entièrement refactorisé → injecte `PaymentRepository`.
+- `AdminController` : Entièrement refactorisé → injecte `UserRepository`.
+
+**Phase 4 – PSR-4 Autoloading :**
+- `composer.json` : Namespaces `App\Controllers`, `App\Services`, `App\Helpers`, `App\Repositories`, `App\Middleware` déclarés explicitement.
+- `composer dump-autoload --optimize` exécuté.
+- `autoload-dev` ajouté pour les futurs tests unitaires.
+
+**Base de données :**
+- `mysql/add_security_constraints.sql` : 8 contraintes `CHECK` + 5 triggers `BEFORE INSERT/UPDATE` (dates, montants, antériorité, statuts enum).
+
 ## [1.9.1] - 26 Mars 2026
 
 ### 🔧 Architecture & SQL Centralisés
