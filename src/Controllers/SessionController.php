@@ -1,9 +1,13 @@
 <?php
 // src/Controllers/SessionController.php
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
-require_once __DIR__ . '/../Helpers/Sanitizer.php';
+namespace App\Controllers;
+
+use Database;
+use Auth;
+use App\Helpers\Sanitizer;
 use App\Services\MailerService;
+use PDO;
+use Exception;
 
 class SessionController
 {

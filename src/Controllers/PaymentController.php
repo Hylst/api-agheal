@@ -1,11 +1,10 @@
 <?php
 // src/Controllers/PaymentController.php
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
-require_once __DIR__ . '/../Helpers/Sanitizer.php';
-require_once __DIR__ . '/../Repositories/BaseRepository.php';
-require_once __DIR__ . '/../Repositories/PaymentRepository.php';
+namespace App\Controllers;
 
+use Database;
+use Auth;
+use App\Helpers\Sanitizer;
 use App\Repositories\PaymentRepository;
 
 class PaymentController

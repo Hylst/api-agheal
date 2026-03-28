@@ -1,9 +1,12 @@
 <?php
 // src/Controllers/CommunicationController.php
+namespace App\Controllers;
 
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
-require_once __DIR__ . '/../Helpers/Sanitizer.php';
+use Database;
+use Auth;
+use App\Helpers\Sanitizer;
+use PDO;
+use PDOException;
 
 class CommunicationController {
 

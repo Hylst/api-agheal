@@ -13,13 +13,16 @@
     },
     "autoload": {
         "psr-4": {
-            "App\\": "src/",
             "App\\Controllers\\": "src/Controllers/",
             "App\\Services\\":    "src/Services/",
             "App\\Helpers\\":     "src/Helpers/",
             "App\\Repositories\\": "src/Repositories/",
             "App\\Middleware\\":   "src/Middleware/"
-        }
+        },
+        "classmap": [
+            "src/Database.php",
+            "src/Auth.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

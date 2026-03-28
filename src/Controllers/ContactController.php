@@ -1,7 +1,8 @@
 <?php
 // src/Controllers/ContactController.php
-require_once __DIR__ . '/../Services/EmailService.php';
-require_once __DIR__ . '/../Helpers/Sanitizer.php';
+namespace App\Controllers;
+
+use App\Helpers\Sanitizer;
 use App\Services\EmailService;
 
 class ContactController

@@ -1,6 +1,9 @@
 <?php
 // src/Helpers/Sanitizer.php
 // Centralise les fonctions de nettoyage / validation des données en entrée.
+namespace App\Helpers;
+
+use DateTime;
 
 class Sanitizer
 {

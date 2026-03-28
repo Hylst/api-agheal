@@ -1,10 +1,9 @@
 <?php
 // src/Controllers/AdminController.php
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
-require_once __DIR__ . '/../Repositories/BaseRepository.php';
-require_once __DIR__ . '/../Repositories/UserRepository.php';
+namespace App\Controllers;
 
+use Database;
+use Auth;
 use App\Repositories\UserRepository;
 
 class AdminController

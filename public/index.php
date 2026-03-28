@@ -1,27 +1,10 @@
 <?php
 // public/index.php
+// Controllers resolved automatically via Composer PSR-4 autoload (config: composer.json)
 
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Auth.php';
-require_once __DIR__ . '/../src/Controllers/AuthController.php';
-require_once __DIR__ . '/../src/Controllers/ProfileController.php';
-require_once __DIR__ . '/../src/Controllers/SessionController.php';
-require_once __DIR__ . '/../src/Controllers/LocationController.php';
-require_once __DIR__ . '/../src/Controllers/GroupController.php';
-require_once __DIR__ . '/../src/Controllers/ContactController.php';
-require_once __DIR__ . '/../src/Controllers/AdminController.php';
-require_once __DIR__ . '/../src/Controllers/ClientController.php';
-require_once __DIR__ . '/../src/Controllers/SessionTypeController.php';
-require_once __DIR__ . '/../src/Controllers/RegistrationController.php';
-require_once __DIR__ . '/../src/Controllers/CommunicationController.php';
-require_once __DIR__ . '/../src/Controllers/PushController.php';
-require_once __DIR__ . '/../src/Controllers/GoogleAuthController.php';
-require_once __DIR__ . '/../src/Controllers/EmailCampaignController.php';
-require_once __DIR__ . '/../src/Controllers/HistoryController.php';
-require_once __DIR__ . '/../src/Controllers/PaymentController.php';
-require_once __DIR__ . '/../src/Controllers/AttendanceController.php';
-require_once __DIR__ . '/../src/Controllers/StatsController.php';
 
 use Dotenv\Dotenv;
 
@@ -92,104 +75,104 @@ $method = $_SERVER['REQUEST_METHOD'];
 // Format : 'METHODE /chemin/{param}' => [ControllerClass, 'method', [params_en_ordre]]
 $routes = [
     // ── Auth ──────────────────────────────────────────
-    'POST /auth/login'              => ['AuthController',       'login'],
-    'POST /auth/signup'             => ['AuthController',       'signup'],
-    'POST /auth/reset-password'     => ['AuthController',       'resetPassword'],
-    'GET /auth/google'              => ['GoogleAuthController', 'redirect'],
-    'GET /auth/google/callback'     => ['GoogleAuthController', 'callback'],
+    'POST /auth/login'              => ['App\Controllers\AuthController',       'login'],
+    'POST /auth/signup'             => ['App\Controllers\AuthController',       'signup'],
+    'POST /auth/reset-password'     => ['App\Controllers\AuthController',       'resetPassword'],
+    'GET /auth/google'              => ['App\Controllers\GoogleAuthController', 'redirect'],
+    'GET /auth/google/callback'     => ['App\Controllers\GoogleAuthController', 'callback'],
 
     // ── Profiles ───────────────────────────────────────
-    'GET /profiles/me'              => ['ProfileController',      'me'],
-    'PUT /profiles/me/notifications'=> ['ProfileController',      'updateNotifications'],
-    'GET /profiles/{id}'            => ['ProfileController',      'show'],
-    'PUT /profiles/{id}'            => ['ProfileController',      'update'],
-    'GET /profiles/{id}/groups'     => ['ProfileController',      'getGroups'],
+    'GET /profiles/me'               => ['App\Controllers\ProfileController',      'me'],
+    'PUT /profiles/me/notifications' => ['App\Controllers\ProfileController',      'updateNotifications'],
+    'GET /profiles/{id}'             => ['App\Controllers\ProfileController',      'show'],
+    'PUT /profiles/{id}'             => ['App\Controllers\ProfileController',      'update'],
+    'GET /profiles/{id}/groups'      => ['App\Controllers\ProfileController',      'getGroups'],
 
     // ── Sessions ───────────────────────────────────────
-    'GET /sessions'                 => ['SessionController',      'index'],
-    'POST /sessions'                => ['SessionController',      'create'],
-    'GET /sessions/{id}'            => ['SessionController',      'show'],
-    'PUT /sessions/{id}'            => ['SessionController',      'update'],
+    'GET /sessions'                 => ['App\Controllers\SessionController',      'index'],
+    'POST /sessions'                => ['App\Controllers\SessionController',      'create'],
+    'GET /sessions/{id}'            => ['App\Controllers\SessionController',      'show'],
+    'PUT /sessions/{id}'            => ['App\Controllers\SessionController',      'update'],
 
     // ── Attendance ─────────────────────────────────────
-    'GET /sessions/{sessionId}/attendance'            => ['AttendanceController', 'getAttendance'],
-    'PUT /sessions/{sessionId}/attendance'            => ['AttendanceController', 'updateAttendance'],
-    'GET /sessions/{sessionId}/attendance/candidates' => ['AttendanceController', 'getCandidates'],
-    'DELETE /sessions/{id}'                           => ['SessionController',    'delete'],
+    'GET /sessions/{sessionId}/attendance'            => ['App\Controllers\AttendanceController', 'getAttendance'],
+    'PUT /sessions/{sessionId}/attendance'            => ['App\Controllers\AttendanceController', 'updateAttendance'],
+    'GET /sessions/{sessionId}/attendance/candidates' => ['App\Controllers\AttendanceController', 'getCandidates'],
+    'DELETE /sessions/{id}'                           => ['App\Controllers\SessionController',    'delete'],
 
     // ── Stats & Logs ───────────────────────────────────
-    'GET /stats/overview'                  => ['StatsController', 'overview'],
-    'GET /stats/sessions'                  => ['StatsController', 'sessionHistory'],
-    'GET /stats/sessions/{sessionId}/detail' => ['StatsController', 'sessionDetail'],
-    'GET /stats/members'                   => ['StatsController', 'memberStats'],
-    'GET /stats/payments'                  => ['StatsController', 'paymentStats'],
-    'GET /stats/attendance'                => ['StatsController', 'attendanceStats'],
-    'GET /stats/logs'                      => ['StatsController', 'getLogs'],
-    'GET /stats/logs/{logId}/download'     => ['StatsController', 'downloadLog'],
-    'GET /stats/logs/export-csv'           => ['StatsController', 'exportSessionsCsv'],
+    'GET /stats/overview'                    => ['App\Controllers\StatsController', 'overview'],
+    'GET /stats/sessions'                    => ['App\Controllers\StatsController', 'sessionHistory'],
+    'GET /stats/sessions/{sessionId}/detail' => ['App\Controllers\StatsController', 'sessionDetail'],
+    'GET /stats/members'                     => ['App\Controllers\StatsController', 'memberStats'],
+    'GET /stats/payments'                    => ['App\Controllers\StatsController', 'paymentStats'],
+    'GET /stats/attendance'                  => ['App\Controllers\StatsController', 'attendanceStats'],
+    'GET /stats/logs'                        => ['App\Controllers\StatsController', 'getLogs'],
+    'GET /stats/logs/{logId}/download'       => ['App\Controllers\StatsController', 'downloadLog'],
+    'GET /stats/logs/export-csv'             => ['App\Controllers\StatsController', 'exportSessionsCsv'],
 
     // ── Registrations ──────────────────────────────────
-    'GET /registrations/me'         => ['RegistrationController', 'getMyRegistrations'],
-    'POST /registrations'           => ['RegistrationController', 'register'],
-    'DELETE /registrations/{id}'    => ['RegistrationController', 'unregister'],
+    'GET /registrations/me'         => ['App\Controllers\RegistrationController', 'getMyRegistrations'],
+    'POST /registrations'           => ['App\Controllers\RegistrationController', 'register'],
+    'DELETE /registrations/{id}'    => ['App\Controllers\RegistrationController', 'unregister'],
 
     // ── Session Types (Activities) ─────────────────────
-    'GET /session-types'            => ['SessionTypeController',  'index'],
-    'POST /session-types'           => ['SessionTypeController',  'create'],
-    'PUT /session-types/{id}'       => ['SessionTypeController',  'update'],
-    'DELETE /session-types/{id}'    => ['SessionTypeController',  'delete'],
+    'GET /session-types'            => ['App\Controllers\SessionTypeController',  'index'],
+    'POST /session-types'           => ['App\Controllers\SessionTypeController',  'create'],
+    'PUT /session-types/{id}'       => ['App\Controllers\SessionTypeController',  'update'],
+    'DELETE /session-types/{id}'    => ['App\Controllers\SessionTypeController',  'delete'],
 
     // ── Locations ──────────────────────────────────────
-    'GET /locations'                => ['LocationController',     'index'],
-    'POST /locations'               => ['LocationController',     'create'],
-    'PUT /locations/{id}'           => ['LocationController',     'update'],
-    'DELETE /locations/{id}'        => ['LocationController',     'delete'],
+    'GET /locations'                => ['App\Controllers\LocationController',     'index'],
+    'POST /locations'               => ['App\Controllers\LocationController',     'create'],
+    'PUT /locations/{id}'           => ['App\Controllers\LocationController',     'update'],
+    'DELETE /locations/{id}'        => ['App\Controllers\LocationController',     'delete'],
 
     // ── Groups ─────────────────────────────────────────
-    'GET /groups'                   => ['GroupController',        'index'],
-    'POST /groups'                  => ['GroupController',        'create'],
-    'PUT /groups/{id}'              => ['GroupController',        'update'],
-    'DELETE /groups/{id}'           => ['GroupController',        'delete'],
+    'GET /groups'                   => ['App\Controllers\GroupController',        'index'],
+    'POST /groups'                  => ['App\Controllers\GroupController',        'create'],
+    'PUT /groups/{id}'              => ['App\Controllers\GroupController',        'update'],
+    'DELETE /groups/{id}'           => ['App\Controllers\GroupController',        'delete'],
 
     // ── Admin ──────────────────────────────────────────
-    'GET /admin/users'                          => ['AdminController', 'getUsers'],
-    'GET /admin/coaches'                        => ['AdminController', 'getCoaches'],
-    'PUT /admin/users/{id}/status'              => ['AdminController', 'updateStatus'],
-    'POST /admin/users/{id}/roles'              => ['AdminController', 'addRole'],
-    'DELETE /admin/users/{id}/roles/{role}'     => ['AdminController', 'removeRole'],
+    'GET /admin/users'                      => ['App\Controllers\AdminController', 'getUsers'],
+    'GET /admin/coaches'                    => ['App\Controllers\AdminController', 'getCoaches'],
+    'PUT /admin/users/{id}/status'          => ['App\Controllers\AdminController', 'updateStatus'],
+    'POST /admin/users/{id}/roles'          => ['App\Controllers\AdminController', 'addRole'],
+    'DELETE /admin/users/{id}/roles/{role}' => ['App\Controllers\AdminController', 'removeRole'],
 
     // ── Clients (coach view) ───────────────────────────
-    'GET /clients'                  => ['ClientController',       'index'],
-    'PUT /clients/{id}'             => ['ClientController',       'update'],
-    'PUT /clients/{id}/groups'      => ['ClientController',       'setGroups'],
+    'GET /clients'                  => ['App\Controllers\ClientController',       'index'],
+    'PUT /clients/{id}'             => ['App\Controllers\ClientController',       'update'],
+    'PUT /clients/{id}/groups'      => ['App\Controllers\ClientController',       'setGroups'],
 
     // ── Communications ─────────────────────────────────
-    'GET /communications'           => ['CommunicationController', 'index'],
-    'GET /communications/my'        => ['CommunicationController', 'getMy'],
-    'POST /communications'          => ['CommunicationController', 'save'],
-    'PUT /communications/{id}'      => ['CommunicationController', 'update'],
-    'DELETE /communications/{id}'   => ['CommunicationController', 'delete'],
+    'GET /communications'           => ['App\Controllers\CommunicationController', 'index'],
+    'GET /communications/my'        => ['App\Controllers\CommunicationController', 'getMy'],
+    'POST /communications'          => ['App\Controllers\CommunicationController', 'save'],
+    'PUT /communications/{id}'      => ['App\Controllers\CommunicationController', 'update'],
+    'DELETE /communications/{id}'   => ['App\Controllers\CommunicationController', 'delete'],
 
     // ── Push Notifications ─────────────────────────────
-    'POST /push/subscribe'          => ['PushController', 'subscribe'],
-    'POST /push/unsubscribe'        => ['PushController', 'unsubscribe'],
+    'POST /push/subscribe'          => ['App\Controllers\PushController', 'subscribe'],
+    'POST /push/unsubscribe'        => ['App\Controllers\PushController', 'unsubscribe'],
 
     // ── Email Campaigns ────────────────────────────────
-    'GET /email-campaigns'          => ['EmailCampaignController', 'index'],
-    'POST /email-campaigns'         => ['EmailCampaignController', 'create'],
-    'DELETE /email-campaigns/{id}'  => ['EmailCampaignController', 'delete'],
+    'GET /email-campaigns'          => ['App\Controllers\EmailCampaignController', 'index'],
+    'POST /email-campaigns'         => ['App\Controllers\EmailCampaignController', 'create'],
+    'DELETE /email-campaigns/{id}'  => ['App\Controllers\EmailCampaignController', 'delete'],
 
     // ── History ────────────────────────────────────────
-    'GET /history'                  => ['HistoryController',      'index'],
+    'GET /history'                  => ['App\Controllers\HistoryController',      'index'],
 
     // ── Payments ───────────────────────────────────────
-    'GET /payments'                 => ['PaymentController',      'index'],
-    'GET /payments/summary'         => ['PaymentController',      'summary'],
-    'POST /payments'                => ['PaymentController',      'create'],
-    'DELETE /payments/{id}'         => ['PaymentController',      'delete'],
+    'GET /payments'                 => ['App\Controllers\PaymentController',      'index'],
+    'GET /payments/summary'         => ['App\Controllers\PaymentController',      'summary'],
+    'POST /payments'                => ['App\Controllers\PaymentController',      'create'],
+    'DELETE /payments/{id}'         => ['App\Controllers\PaymentController',      'delete'],
 
     // ── Contact ────────────────────────────────────────
-    'POST /contact'                 => ['ContactController',      'send'],
+    'POST /contact'                 => ['App\Controllers\ContactController',      'send'],
 ];
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────

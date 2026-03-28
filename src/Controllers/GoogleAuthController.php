@@ -1,8 +1,9 @@
 <?php
 // src/Controllers/GoogleAuthController.php
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
+namespace App\Controllers;
 
+use Database;
+use Auth;
 use League\OAuth2\Client\Provider\Google;
 use Firebase\JWT\JWT;
 

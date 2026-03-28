@@ -1,8 +1,11 @@
 <?php
 // src/Controllers/HistoryController.php
+namespace App\Controllers;
 
-require_once __DIR__ . '/../Database.php';
-require_once __DIR__ . '/../Auth.php';
+use Database;
+use Auth;
+use PDO;
+use PDOException;
 
 class HistoryController {
 
