@@ -2,124 +2,61 @@
 // src/Controllers/SessionController.php
 namespace App\Controllers;
 
-use Database;
 use Auth;
 use App\Helpers\Sanitizer;
+use App\Repositories\SessionRepository;
 use App\Services\MailerService;
-use PDO;
 use Exception;
 
+/**
+ * Ce contrôleur gère uniquement la logique HTTP ("Qu'est-ce qu'on renvoie au navigateur ?").
+ * Il ne contient AUCUNE requête SQL "brute". Toute la logique de base de données 
+ * a été déplacée dans le `SessionRepository` selon le principe de "Séparation des Responsabilités".
+ */
 class SessionController
 {
+    private SessionRepository $sessions;
+
+    public function __construct()
+    {
+        // On instancie le "dépôt" qui va gérer la base de données pour nous.
+        $this->sessions = new SessionRepository();
+    }
+
     /**
      * GET /sessions[?status=draft|published|all&include=registrations]
+     * Récupère la liste des séances (planning public ou privé).
      */
     public function index(): void
     {
+        // 1. On lit les paramètres optionnels envoyés dans l'URL (ex: ?status=all)
         $status = $_GET['status'] ?? 'published';
         $include = $_GET['include'] ?? '';
-        $db = Database::getInstance();
-
-        $whereClause = ($status === 'all') ? '1=1' : "s.status = ?";
-        $params = ($status === 'all') ? [] : [$status];
-
-        // Pour la vue publique on exclut les séances déjà terminées
-        // La vue coach (status=all) conserve tout l'historique
-        if ($status !== 'all') {
-            $whereClause .= " AND CONCAT(s.date, ' ', s.end_time) >= NOW()";
-        }
-
-        $sql = "
-            SELECT 
-                s.*,
-                st.name  as session_type_name,
-                l.name   as location_name
-            FROM sessions s
-            LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations l     ON l.id  = s.location_id
-            WHERE $whereClause
-            ORDER BY s.date ASC, s.start_time ASC
-        ";
-
-        $stmt = $db->query($sql, $params);
-        $sessions = $stmt->fetchAll();
-
-        // Si on demande d'inclure les inscriptions (vue coach)
-        $registrationsMap = [];
-        $userRegistrations = [];
         $currentUserId = Auth::getUserId();
 
+        // 2. Si on demande les noms des inscrits, il faut obligatoirement être admin/coach (sécurité RGPD)
         if ($include === 'registrations') {
             Auth::requireRole(['admin', 'coach']);
-            $regSql = "
-                SELECT r.session_id, r.id, p.first_name, p.last_name
-                FROM registrations r
-                JOIN profiles p ON p.id = r.user_id
-            ";
-            $regStmt = $db->query($regSql);
-            while($reg = $regStmt->fetch()) {
-                $registrationsMap[$reg['session_id']][] = [
-                    'id' => $reg['id'],
-                    'profiles' => [
-                        'first_name' => $reg['first_name'],
-                        'last_name' => $reg['last_name']
-                    ]
-                ];
-            }
-        } else {
-            // Sinon on compte juste les inscriptions
-            $countSql = "SELECT session_id, COUNT(*) as cnt FROM registrations GROUP BY session_id";
-            $countStmt = $db->query($countSql);
-            while($count = $countStmt->fetch()) {
-                $registrationsMap[$count['session_id']] = (int)$count['cnt'];
-            }
-            
-            // Et on récupère les inscriptions de l'utilisateur actuel
-            if ($currentUserId) {
-                $userRegSql = "SELECT session_id FROM registrations WHERE user_id = ?";
-                $userRegStmt = $db->query($userRegSql, [$currentUserId]);
-                $userRegistrations = $userRegStmt->fetchAll(PDO::FETCH_COLUMN);
-            }
         }
 
-        // Structure imbriquée compatible frontend
-        $sessions = array_map(function ($session) use ($registrationsMap, $include, $userRegistrations) {
-            $session['session_types'] = $session['session_type_name']
-                ? ['name' => $session['session_type_name']]
-                : null;
-            $session['locations'] = $session['location_name']
-                ? ['name' => $session['location_name']]
-                : null;
-            
-            $isRegistered = in_array($session['id'], $userRegistrations);
+        // 3. On demande au Repository de faire le gros du travail SQL
+        $sessions = $this->sessions->findAllWithDetails($status, $include, $currentUserId);
 
-            if ($include === 'registrations') {
-                $session['registrations'] = $registrationsMap[$session['id']] ?? [];
-            } else {
-                $count = is_int($registrationsMap[$session['id']] ?? null) 
-                    ? $registrationsMap[$session['id']] 
-                    : (is_array($registrationsMap[$session['id']] ?? null) ? count($registrationsMap[$session['id']]) : 0);
-                $session['registrations'] = [
-                    ['count' => $count, 'is_user_registered' => $isRegistered]
-                ];
-            }
-            
-            unset($session['session_type_name'], $session['location_name']);
-            return $session;
-        }, $sessions);
-
+        // 4. On renvoie le résultat formaté en JSON avec un code 200 (Succès)
         http_response_code(200);
         echo json_encode($sessions);
     }
 
     /**
      * POST /sessions
-     * Supporte l'insertion d'une session unique ou d'un tableau de sessions
+     * Création d'une ou plusieurs séances.
      */
     public function create(): void
     {
+        // 1. Seuls les admins et coachs peuvent créer des séances
         Auth::requireRole(['admin', 'coach']);
 
+        // 2. On récupère les données envoyées par le navigateur au format JSON
         $data = json_decode(file_get_contents('php://input'), true);
         
         if (!$data) {
@@ -128,13 +65,14 @@ class SessionController
             return;
         }
 
+        // 3. Pour gérer la création de masse (batch), on s'assure d'avoir un tableau de séances
         $sessionsToCreate = isset($data[0]) ? $data : [$data];
-        $db = Database::getInstance();
+        $preparedData = [];
 
         try {
-            $db->beginTransaction();
-
+            // 4. On boucle sur chaque séance pour valider qu'il ne manque rien (Sécurité)
             foreach ($sessionsToCreate as $session) {
+                // Champs strictement obligatoires
                 $required = ['title', 'date', 'start_time', 'end_time'];
                 foreach ($required as $field) {
                     if (empty($session[$field])) {
@@ -142,80 +80,76 @@ class SessionController
                     }
                 }
 
-                $db->query(
-                    "INSERT INTO sessions (title, date, start_time, end_time, type_id, location_id, capacity, min_people, max_people, min_people_blocking, max_people_blocking, equipment_coach, equipment_clients, equipment_location, status, description, created_at, created_by, limit_registration_7_days)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)",
-                    [
-                        Sanitizer::text($session['title'], 100),
-                        Sanitizer::date($session['date']),
-                        Sanitizer::time($session['start_time']),
-                        Sanitizer::time($session['end_time']),
-                        $session['type_id']        ?? null,
-                        $session['location_id']    ?? null,
-                        $session['max_people']     ?? null,
-                        $session['min_people']     ?? 1,
-                        $session['max_people']     ?? 10,
-                        isset($session['min_people_blocking']) ? (int)$session['min_people_blocking'] : 1,
-                        isset($session['max_people_blocking']) ? (int)$session['max_people_blocking'] : 1,
-                        Sanitizer::text($session['equipment_coach'] ?? '',    200),
-                        Sanitizer::text($session['equipment_clients'] ?? '',   200),
-                        Sanitizer::text($session['equipment_location'] ?? '', 200),
-                        Sanitizer::enum($session['status'] ?? 'published', ['draft','published','cancelled','completed']),
-                        Sanitizer::text($session['description'] ?? '', 1000),
-                        Auth::getUserId(),
-                        !empty($session['limit_registration_7_days']) ? 1 : 0
-                    ]
-                );
+                // 5. Nettoyage des données (Sanitizing) pour éviter les failles XSS ou injections
+                $preparedData[] = [
+                    Sanitizer::text($session['title'], 100),
+                    Sanitizer::date($session['date']),
+                    Sanitizer::time($session['start_time']),
+                    Sanitizer::time($session['end_time']),
+                    $session['type_id']        ?? null,
+                    $session['location_id']    ?? null,
+                    $session['max_people']     ?? null,     // Ancien champ 'capacity'
+                    $session['min_people']     ?? 1,
+                    $session['max_people']     ?? 10,
+                    isset($session['min_people_blocking']) ? (int)$session['min_people_blocking'] : 1,
+                    isset($session['max_people_blocking']) ? (int)$session['max_people_blocking'] : 1,
+                    Sanitizer::text($session['equipment_coach'] ?? '',    200),
+                    Sanitizer::text($session['equipment_clients'] ?? '',   200),
+                    Sanitizer::text($session['equipment_location'] ?? '', 200),
+                    Sanitizer::enum($session['status'] ?? 'published', ['draft','published','cancelled','completed']),
+                    Sanitizer::text($session['description'] ?? '', 1000),
+                    Auth::getUserId(), // C'est le compte connecté qui est l'auteur
+                    !empty($session['limit_registration_7_days']) ? 1 : 0
+                ];
             }
 
-            $db->commit();
+            // 6. On délègue la sauvegarde en base de données au Repository (via une Transaction SQL)
+            $this->sessions->createMultiple($preparedData);
 
-            // --- NOTIFICATION EMAIL DES NOUVELLES SÉANCES ---
+            // 7. --- NOTIFICATION EMAIL DES NOUVELLES SÉANCES ---
             try {
-                $stmtStr = "
-                    SELECT p.email
-                    FROM profiles p
-                    JOIN user_roles ur ON p.id = ur.user_id
-                    WHERE ur.role = 'adherent'
-                      AND p.statut_compte = 'actif'
-                      AND p.notify_new_sessions_email = 1
-                      AND p.email IS NOT NULL
-                      AND p.email != ''
-                ";
-                $stmtEmails = $db->query($stmtStr);
-                $bccEmails = $stmtEmails->fetchAll(PDO::FETCH_COLUMN);
+                // On récupère uniquement les adhérents voulant être notifiés
+                $bccEmails = $this->sessions->getNewSessionsSubscribers();
 
                 if (!empty($bccEmails)) {
-                    $mailer = new \App\Services\MailerService();
+                    // On délègue l'envoi d'e-mail au MailerService
+                    $mailer = new MailerService();
                     $mailer->sendNewSessionsNotification($bccEmails, $sessionsToCreate);
                 }
             } catch (Exception $eMail) {
+                // On log l'erreur d'email en silence car la séance a quand même été créée en BDD
                 error_log("Erreur Mailer (Nouvelles Séances) : " . $eMail->getMessage());
             }
 
-            http_response_code(201);
+            // 8. Tout s'est bien passé
+            http_response_code(201); // 201 = Created
             echo json_encode(['message' => count($sessionsToCreate) . ' séance(s) créée(s)']);
+            
         } catch (Exception $e) {
-            $db->rollBack();
-            http_response_code(422);
+            // S'il y a eu une erreur de type (titre vide, date invalide...)
+            http_response_code(422); // 422 = Unprocessable Entity
             echo json_encode(['error' => $e->getMessage()]);
         }
     }
 
     /**
      * PUT /sessions/{id}
+     * Mise à jour des informations d'une séance spécifique.
      */
     public function update(string $id): void
     {
+        // 1. Protection des rôles
         Auth::requireRole(['admin', 'coach']);
 
+        // 2. Récupération des données JSON envoyées
         $data = json_decode(file_get_contents('php://input'), true);
 
-        // Map capacity to max_people temporarily
+        // Map le vieux champ 'capacity' vers le nouveau 'max_people' pour rétrocompatibilité
         if (isset($data['capacity']) && !isset($data['max_people'])) {
             $data['max_people'] = $data['capacity'];
         }
 
+        // 3. Liste des colonnes qu'un utilisateur a le droit de modifier (Sécurité)
         $allowed = [
             'title', 'date', 'start_time', 'end_time', 'type_id', 'location_id', 
             'capacity', 'status', 'description',
@@ -223,11 +157,14 @@ class SessionController
             'equipment_coach', 'equipment_clients', 'equipment_location',
             'limit_registration_7_days'
         ];
+        
         $updates = [];
         $values  = [];
 
+        // 4. On boucle sur les paramètres envoyés. S'ils sont autorisés, on prépare la màj
         foreach ($allowed as $field) {
             if (array_key_exists($field, $data)) {
+                // On utilise les backticks MySQL au cas où un nom de colonne soit un mot réservé
                 $updates[] = "`$field` = ?";
                 $values[]  = $data[$field];
             }
@@ -235,31 +172,31 @@ class SessionController
 
         if (empty($updates)) {
             http_response_code(422);
-            echo json_encode(['error' => 'Aucun champ valide fourni']);
+            echo json_encode(['error' => 'Aucun champ valide fourni pour la mise à jour']);
             return;
         }
 
-        $values[] = $id;
-        $db = Database::getInstance();
-        $db->query("UPDATE sessions SET " . implode(', ', $updates) . " WHERE id = ?", $values);
+        // 5. On demande au Repository d'exécuter la requête d'UPDATE
+        $this->sessions->update($id, $updates, $values);
 
-        http_response_code(200);
-        echo json_encode(['message' => 'Séance mise à jour']);
+        http_response_code(200); // 200 = OK
+        echo json_encode(['message' => 'Séance mise à jour avec succès']);
     }
 
     /**
      * DELETE /sessions/{id}
+     * Supprime une séance.
      */
     public function delete(string $id): void
     {
+        // 1. Protection
         Auth::requireRole(['admin', 'coach']);
 
-        $db = Database::getInstance();
-        // Supprimer d'abord les inscriptions liées
-        $db->query("DELETE FROM registrations WHERE session_id = ?", [$id]);
-        $db->query("DELETE FROM sessions WHERE id = ?", [$id]);
+        // 2. Le Repository se chargera de supprimer proprement les inscriptions avant la séance (Cascade)
+        $this->sessions->delete($id);
 
         http_response_code(200);
-        echo json_encode(['message' => 'Séance supprimée']);
+        echo json_encode(['message' => 'Séance supprimée définitivement']);
     }
 }
+

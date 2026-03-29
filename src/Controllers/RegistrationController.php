@@ -2,174 +2,101 @@
 // src/Controllers/RegistrationController.php
 namespace App\Controllers;
 
-use Database;
 use Auth;
-use DateTime;
+use Exception;
+use App\Repositories\RegistrationRepository;
 
+/**
+ * Ce contrôleur gère les inscriptions et désinscriptions aux séances.
+ * Conformément à la refactorisation (Pattern Repository), 
+ * il ne contient plus de requêtes SQL brutes.
+ */
 class RegistrationController
 {
+    private RegistrationRepository $registrations;
+
+    public function __construct()
+    {
+        // Instanciation du Repository qui va s'occuper de la base de données
+        $this->registrations = new RegistrationRepository();
+    }
+
     /**
      * GET /registrations/me
-     * Retourne les inscriptions de l'utilisateur connecté avec les données de séance
+     * Retourne les inscriptions de l'utilisateur connecté avec les données de la séance associée.
      */
     public function getMyRegistrations(): void
     {
+        // 1. On s'assure que l'utilisateur est bien connecté (récupération de son ID via JWT)
         $currentUser = Auth::requireAuth();
         $userId = $currentUser['sub'];
 
-        $db = Database::getInstance();
+        // 2. On demande au Repository de récupérer les inscriptions de cet utilisateur
+        $myRegistrations = $this->registrations->findUserRegistrations($userId);
 
-        $sql = "
-            SELECT 
-                r.id,
-                r.created_at,
-                s.id as session_id,
-                s.title,
-                s.date,
-                s.start_time,
-                s.end_time,
-                st.name as session_type_name,
-                l.name as location_name
-            FROM registrations r
-            JOIN sessions s ON s.id = r.session_id
-            LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations l ON l.id = s.location_id
-            WHERE r.user_id = ?
-            ORDER BY r.created_at DESC
-        ";
-
-        $stmt = $db->query($sql, [$userId]);
-        $rows = $stmt->fetchAll();
-
-        // Build nested structure equivalent to Supabase select
-        $registrations = array_map(function ($row) {
-            return [
-                'id'         => $row['id'],
-                'created_at' => $row['created_at'],
-                'sessions'   => [
-                    'id'          => $row['session_id'],
-                    'title'       => $row['title'],
-                    'date'        => $row['date'],
-                    'start_time'  => $row['start_time'],
-                    'end_time'    => $row['end_time'],
-                    'session_types' => $row['session_type_name']
-                        ? ['name' => $row['session_type_name']]
-                        : null,
-                    'locations' => $row['location_name']
-                        ? ['name' => $row['location_name']]
-                        : null,
-                ],
-            ];
-        }, $rows);
-
+        // 3. On retourne le résultat au format JSON avec un code 200 (Succès)
         http_response_code(200);
-        echo json_encode($registrations);
+        echo json_encode($myRegistrations);
     }
 
     /**
      * POST /registrations
-     * Inscrit l'utilisateur connecté à une séance
+     * Inscrit l'utilisateur connecté à une séance spécifique.
      */
     public function register(): void
     {
+        // 1. Validation de la session utilisateur
         $currentUser = Auth::requireAuth();
         $userId = $currentUser['sub'];
 
+        // 2. Lecture du paramètre 'session_id' envoyé au format JSON par l'application
         $data = json_decode(file_get_contents('php://input'), true);
         $sessionId = $data['session_id'] ?? null;
 
+        // Si l'ID de la séance manque, on renvoie une erreur 422
         if (!$sessionId) {
             http_response_code(422);
             echo json_encode(['error' => 'session_id est requis']);
             return;
         }
 
-        $db = Database::getInstance();
+        try {
+            // 3. On délègue toute la logique complexe d'inscription au Repository.
+            // Le repository vérifie si la séance existe, s'il y a de la place,
+            // si la limite des 7 jours est respectée, gère la concurrence, etc.
+            $this->registrations->registerUser($userId, $sessionId);
 
-        // Vérifie que la séance existe et est publiée
-        $stmt = $db->query(
-            "SELECT id, date, limit_registration_7_days, capacity, max_people, max_people_blocking 
-             FROM sessions 
-             WHERE id = ? AND status = 'published'",
-            [$sessionId]
-        );
-        $session = $stmt->fetch();
-
-        if (!$session) {
-            http_response_code(404);
-            echo json_encode(['error' => 'Séance introuvable ou non disponible']);
-            return;
-        }
-
-        // Vérification limite des 7 jours si activée
-        if (!empty($session['limit_registration_7_days'])) {
-            $sessionDate = new DateTime($session['date']);
-            $now = new DateTime();
-            $now->setTime(0, 0, 0); // Comparer à partir de minuit
+            // 4. Si la méthode ci-dessus n'a pas déclenché d'Exception, c'est que l'inscription a réussi.
+            http_response_code(201); // 201 = Créé avec succès
+            echo json_encode(['message' => 'Inscription confirmée']);
             
-            $interval = $now->diff($sessionDate);
-            if ($interval->invert === 0 && $interval->days > 7) {
-                http_response_code(403);
-                echo json_encode(['error' => 'Inscription impossible à plus de 7 jours en avance']);
-                return;
-            }
+        } catch (Exception $e) {
+            // S'il y a eu un problème (Ex: Plus de places dispo, doublon, etc.)
+            // Le Repository renvoie le code HTTP dans le champ "code" de l'Exception
+            $httpCode = $e->getCode() ?: 400; // 400 par défaut si non précisé
+            http_response_code($httpCode);
+            echo json_encode(['error' => $e->getMessage()]);
         }
-
-        // Vérifie que l'utilisateur n'est pas déjà inscrit
-        $stmt = $db->query(
-            "SELECT id FROM registrations WHERE user_id = ? AND session_id = ?",
-            [$userId, $sessionId]
-        );
-        if ($stmt->rowCount() > 0) {
-            http_response_code(409);
-            echo json_encode(['error' => 'Vous êtes déjà inscrit à cette séance']);
-            return;
-        }
-
-        // Détermine la limite de participants (priorité à max_people, fallback capacity)
-        $limit = $session['max_people'] ?? $session['capacity'];
-        $isBlocking = (bool)($session['max_people_blocking'] ?? 1); // Par défaut on bloque
-
-        // Vérifie la capacité si une limite est définie ET qu'elle est bloquante
-        if ($limit !== null && $isBlocking) {
-            $stmt = $db->query(
-                "SELECT COUNT(*) as cnt FROM registrations WHERE session_id = ?",
-                [$sessionId]
-            );
-            $count = $stmt->fetch();
-            if ($count['cnt'] >= $limit) {
-                http_response_code(409);
-                echo json_encode(['error' => 'Cette séance est complète (limite atteinte)']);
-                return;
-            }
-        }
-
-        $db->query(
-            "INSERT INTO registrations (user_id, session_id) VALUES (?, ?)",
-            [$userId, $sessionId]
-        );
-
-        http_response_code(201);
-        echo json_encode(['message' => 'Inscription confirmée']);
     }
 
     /**
      * DELETE /registrations/{sessionId}
-     * Désinscrit l'utilisateur connecté d'une séance
+     * Désinscrit l'utilisateur connecté d'une séance.
      */
     public function unregister(string $id): void
     {
         $sessionId = $id;
+
+        // 1. Vérification que l'utilisateur est connecté
         $currentUser = Auth::requireAuth();
         $userId = $currentUser['sub'];
 
-        $db = Database::getInstance();
-        $db->query(
-            "DELETE FROM registrations WHERE user_id = ? AND session_id = ?",
-            [$userId, $sessionId]
-        );
+        // 2. Le Repository s'occupe de la suppression en base de données
+        $this->registrations->unregisterUser($userId, $sessionId);
 
+        // 3. On confirme que la désinscription s'est bien passée
         http_response_code(200);
         echo json_encode(['message' => 'Désinscription effectuée']);
     }
 }
+

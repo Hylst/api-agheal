@@ -2,118 +2,145 @@
 // src/Repositories/SessionRepository.php
 namespace App\Repositories;
 
+use PDO;
+use Exception;
+
 /**
  * Accès aux données de la table sessions et registrations.
+ * Gère la logique complexe des requêtes pour laisser le contrôleur très clean.
  */
 class SessionRepository extends BaseRepository
 {
-    /** Retourne toutes les séances avec leurs jointures (type, lieu, créateur, inscriptions). */
-    public function findAll(): array
+    /**
+     * Retourne toutes les séances, filtrées optionnellement et enrichies
+     * avec le nombre de participants ou le détail complet des inscriptions.
+     * 
+     * @param string $status  ex: 'published', 'all'
+     * @param string $include ex: 'registrations' ou ''
+     * @param string|null $currentUserId L'ID de l'utilisateur courant pour indiquer s'il est inscrit
+     */
+    public function findAllWithDetails(string $status, string $include, ?string $currentUserId): array
     {
-        return $this->fetchAll("
-            SELECT
-                s.*,
-                st.name  AS session_type_name,
-                l.name   AS location_name,
-                CONCAT(p.first_name,' ',p.last_name) AS coach_name,
-                (SELECT COUNT(*) FROM registrations r WHERE r.session_id = s.id) AS registrations_count
-            FROM sessions s
-            LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations     l  ON l.id  = s.location_id
-            LEFT JOIN profiles      p  ON p.id  = s.created_by
-            ORDER BY s.date ASC, s.start_time ASC
-        ");
-    }
+        $whereClause = ($status === 'all') ? '1=1' : "s.status = ?";
+        $params = ($status === 'all') ? [] : [$status];
 
-    /** Trouve une séance par ID. */
-    public function findById(string $id): ?array
-    {
-        return $this->fetchOne("
-            SELECT s.*,
-                   st.name AS session_type_name,
-                   l.name  AS location_name
+        // 1. Pour la vue publique, masque complètement les séances terminées (date/heure dépassée)
+        if ($status !== 'all') {
+            $whereClause .= " AND CONCAT(s.date, ' ', s.end_time) >= NOW()";
+        }
+
+        // 2. Récupère les séances de base
+        $sql = "
+            SELECT 
+                s.*,
+                st.name  as session_type_name,
+                l.name   as location_name
             FROM sessions s
             LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations     l  ON l.id  = s.location_id
-            WHERE s.id = ?
-        ", [$id]);
+            LEFT JOIN locations l     ON l.id  = s.location_id
+            WHERE $whereClause
+            ORDER BY s.date ASC, s.start_time ASC
+        ";
+
+        $sessions = $this->fetchAll($sql, $params);
+
+        // 3. Récupère intelligemment les données d'inscription selon le contexte
+        $registrationsMap = [];
+        $userRegistrations = [];
+
+        if ($include === 'registrations') {
+            // Contexte Coach/Admin: On veut le détail des noms des inscrits (RGPD protected par le contrôleur)
+            $regSql = "
+                SELECT r.session_id, r.id, p.first_name, p.last_name
+                FROM registrations r
+                JOIN profiles p ON p.id = r.user_id
+            ";
+            $regStmt = $this->query($regSql);
+            while($reg = $regStmt->fetch()) {
+                $registrationsMap[$reg['session_id']][] = [
+                    'id' => $reg['id'],
+                    'profiles' => [
+                        'first_name' => $reg['first_name'],
+                        'last_name' => $reg['last_name']
+                    ]
+                ];
+            }
+        } else {
+            // Contexte Publique: on a juste besoin du COUNT pour calculer les places restantes
+            $countSql = "SELECT session_id, COUNT(*) as cnt FROM registrations GROUP BY session_id";
+            $countStmt = $this->query($countSql);
+            while($count = $countStmt->fetch()) {
+                $registrationsMap[$count['session_id']] = (int)$count['cnt'];
+            }
+            
+            // Pour afficher le bouton "Se désinscrire" à la bonne personne
+            if ($currentUserId) {
+                $userRegSql = "SELECT session_id FROM registrations WHERE user_id = ?";
+                $userRegStmt = $this->query($userRegSql, [$currentUserId]);
+                $userRegistrations = $userRegStmt->fetchAll(PDO::FETCH_COLUMN);
+            }
+        }
+
+        // 4. Assemble tout dans une structure de tableau formatée pour le Frontend
+        return array_map(function ($session) use ($registrationsMap, $include, $userRegistrations) {
+            $session['session_types'] = $session['session_type_name']
+                ? ['name' => $session['session_type_name']]
+                : null;
+            $session['locations'] = $session['location_name']
+                ? ['name' => $session['location_name']]
+                : null;
+            
+            $isRegistered = in_array($session['id'], $userRegistrations);
+
+            if ($include === 'registrations') {
+                $session['registrations'] = $registrationsMap[$session['id']] ?? [];
+            } else {
+                // Compte sécurisé des inscriptions
+                $count = is_int($registrationsMap[$session['id']] ?? null) 
+                    ? $registrationsMap[$session['id']] 
+                    : (is_array($registrationsMap[$session['id']] ?? null) ? count($registrationsMap[$session['id']]) : 0);
+                    
+                $session['registrations'] = [
+                    ['count' => $count, 'is_user_registered' => $isRegistered]
+                ];
+            }
+            
+            // On retire les colonnes temporaires
+            unset($session['session_type_name'], $session['location_name']);
+            return $session;
+        }, $sessions);
     }
 
     /**
-     * Insère une ou plusieurs séances en transaction.
-     * @param array $sessions Tableau de tableaux de champs de séance.
-     * @param string $createdBy UUID du coach/admin
+     * Insère une ou plusieurs séances en transaction "tout ou rien" (ACID).
      */
-    public function createMany(array $sessions, string $createdBy): void
+    public function createMultiple(array $sessionsPreparedData): void
     {
-        foreach ($sessions as $s) {
-            $this->execute("
-                INSERT INTO sessions
-                    (title, date, start_time, end_time, type_id, location_id,
-                     capacity, min_people, max_people,
-                     min_people_blocking, max_people_blocking,
-                     equipment_coach, equipment_clients, equipment_location,
-                     status, description, created_at, created_by, limit_registration_7_days)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)
-            ", [
-                $s['title'],
-                $s['date'],
-                $s['start_time'],
-                $s['end_time'],
-                $s['type_id']               ?? null,
-                $s['location_id']           ?? null,
-                $s['max_people']            ?? null,
-                $s['min_people']            ?? 1,
-                $s['max_people']            ?? 10,
-                $s['min_people_blocking']   ?? 1,
-                $s['max_people_blocking']   ?? 1,
-                $s['equipment_coach']       ?? null,
-                $s['equipment_clients']     ?? null,
-                $s['equipment_location']    ?? null,
-                $s['status']               ?? 'published',
-                $s['description']          ?? null,
-                $createdBy,
-                !empty($s['limit_registration_7_days']) ? 1 : 0,
-            ]);
-        }
-    }
+        try {
+            $this->beginTransaction();
 
-    /** Met à jour les champs autorisés d'une séance. */
-    public function update(string $id, array $fields): int
-    {
-        $allowed = [
-            'title','date','start_time','end_time','type_id','location_id',
-            'capacity','status','description',
-            'min_people','max_people','min_people_blocking','max_people_blocking',
-            'equipment_coach','equipment_clients','equipment_location',
-            'limit_registration_7_days',
-        ];
-
-        $updates = [];
-        $values  = [];
-        foreach ($allowed as $field) {
-            if (array_key_exists($field, $fields)) {
-                $updates[] = "`$field` = ?";
-                $values[]  = $fields[$field];
+            foreach ($sessionsPreparedData as $data) {
+                $this->execute(
+                    "INSERT INTO sessions (
+                        title, date, start_time, end_time, type_id, location_id, capacity, 
+                        min_people, max_people, min_people_blocking, max_people_blocking, 
+                        equipment_coach, equipment_clients, equipment_location, status, 
+                        description, created_at, created_by, limit_registration_7_days
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)",
+                    $data
+                );
             }
+
+            $this->commit();
+        } catch (Exception $e) {
+            $this->rollBack();
+            throw $e;
         }
-        if (empty($updates)) return 0;
-        $values[] = $id;
-
-        return $this->execute(
-            "UPDATE sessions SET " . implode(', ', $updates) . " WHERE id = ?",
-            $values
-        );
     }
 
-    /** Supprime une séance et ses inscriptions associées. */
-    public function delete(string $id): void
-    {
-        $this->execute("DELETE FROM registrations WHERE session_id = ?", [$id]);
-        $this->execute("DELETE FROM sessions WHERE id = ?", [$id]);
-    }
-
-    /** Emails des adhérents actifs ayant activé notify_new_sessions_email. */
+    /**
+     * Emails des adhérents actifs ayant activé la feature "Me notifier par email des nouvelles séances".
+     */
     public function getNewSessionsSubscribers(): array
     {
         return $this->query("
@@ -124,6 +151,29 @@ class SessionRepository extends BaseRepository
               AND p.statut_compte = 'actif'
               AND p.notify_new_sessions_email = 1
               AND p.email IS NOT NULL AND p.email != ''
-        ")->fetchAll(\PDO::FETCH_COLUMN);
+        ")->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /** 
+     * Met à jour une séance dynamique.
+     */
+    public function update(string $id, array $updates, array $values): int
+    {
+        if (empty($updates)) return 0;
+        
+        $values[] = $id;
+        return $this->execute(
+            "UPDATE sessions SET " . implode(', ', $updates) . " WHERE id = ?",
+            $values
+        );
+    }
+
+    /** 
+     * Supprime une séance et ses inscriptions associées. 
+     */
+    public function delete(string $id): void
+    {
+        $this->execute("DELETE FROM registrations WHERE session_id = ?", [$id]);
+        $this->execute("DELETE FROM sessions WHERE id = ?", [$id]);
     }
 }

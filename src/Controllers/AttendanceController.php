@@ -2,24 +2,37 @@
 // src/Controllers/AttendanceController.php
 namespace App\Controllers;
 
-use Database;
 use Auth;
+use App\Repositories\AttendanceRepository;
 
+/**
+ * Contrôleur en charge de la gestion des présences (Pointage des séances).
+ * Il ne gère pas la base de données directement : il utilise AttendanceRepository (Single Responsibility).
+ */
 class AttendanceController
 {
-    /** Répertoire des fichiers de log physiques (relatif à la racine du projet) */
+    /** Répertoire local de stockage des logs de la séance en JSON */
     private const LOG_DIR = __DIR__ . '/../../logs/sessions';
+
+    private AttendanceRepository $attendance;
+
+    public function __construct()
+    {
+        // Instanciation du repository qui s'occupe de la communication avec MySQL
+        $this->attendance = new AttendanceRepository();
+    }
 
     // =========================================================================
     // GET /sessions/{sessionId}/attendance
     // =========================================================================
     /**
      * Retourne la liste des inscrits + statut de présence pour une séance.
-     * Inclut les infos complètes du coach (créateur de la séance).
-     * Accès : coach / admin seulement.
+     * Inclut les infos complètes de la séance (et de son coach créateur).
+     * Accès sécurisé : limité au profil "coach" ou "admin".
      */
     public function getAttendance(string $sessionId): void
     {
+        // 1. Règle de sécurité (Seuls Coachs et Admins peuvent voir le pointage)
         $currentUser = Auth::requireAuth();
         $role = $currentUser['role'] ?? 'adherent';
 
@@ -29,49 +42,20 @@ class AttendanceController
             return;
         }
 
-        $db = Database::getInstance();
+        // 2. On utilise le Repository pour récupérer les infos de la séance
+        $session = $this->attendance->getSessionDetails($sessionId);
 
-        // Session + infos coach (created_by)
-        $stmt = $db->query("
-            SELECT
-                s.id, s.title, s.date, s.start_time, s.end_time,
-                s.min_people, s.max_people, s.status, s.created_by,
-                st.name AS type_name,
-                l.name AS location_name,
-                CONCAT(p.first_name, ' ', p.last_name) AS coach_name,
-                p.email AS coach_email
-            FROM sessions s
-            LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations l ON l.id = s.location_id
-            LEFT JOIN profiles p ON p.id = s.created_by
-            WHERE s.id = ?
-        ", [$sessionId]);
-        $session = $stmt->fetch();
-
+        // Si la séance n'existe pas, ou erreur d'ID -> 404 Not Found
         if (!$session) {
             http_response_code(404);
             echo json_encode(['error' => 'Séance introuvable']);
             return;
         }
 
-        // Inscrits + statut présence
-        $stmt = $db->query("
-            SELECT
-                r.id as registration_id,
-                r.user_id,
-                r.attended,
-                r.attended_at,
-                r.created_at as registered_at,
-                p.first_name,
-                p.last_name,
-                p.email
-            FROM registrations r
-            JOIN profiles p ON p.id = r.user_id
-            WHERE r.session_id = ?
-            ORDER BY p.last_name ASC, p.first_name ASC
-        ", [$sessionId]);
-        $rows = $stmt->fetchAll();
+        // 3. On demande au Repository la liste complète des inscrits et leur présence
+        $rows = $this->attendance->getSessionAttendees($sessionId);
 
+        // 4. On prépare la donnée pour qu'elle soit facilement utilisable en React/Frontend
         $attendees = array_map(fn($row) => [
             'registration_id' => $row['registration_id'],
             'user_id'         => $row['user_id'],
@@ -84,6 +68,7 @@ class AttendanceController
             'is_walk_in'      => false,
         ], $rows);
 
+        // 5. On renvoie le tout avec un code 200 (Succès)
         http_response_code(200);
         echo json_encode([
             'session'          => $session,
@@ -97,14 +82,13 @@ class AttendanceController
     // PUT /sessions/{sessionId}/attendance
     // =========================================================================
     /**
-     * Met à jour le statut de présence en batch.
-     * Gère le walk-in (INSERT si non inscrit).
-     * Après enregistrement : écrit dans logs (BDD) + fichier physique.
-     *
-     * Body: { "attendances": [{ "user_id": "uuid", "attended": true|false }] }
+     * Met à jour le statut de présence en lot (Batch).
+     * S'il y a un ajout de dernière minute (Walk-in), la DB l'enregistre à la volée.
+     * Génère des journaux d'événements (logs) de sécurité.
      */
     public function updateAttendance(string $sessionId): void
     {
+        // 1. Vérifie si tu as le droit de pointer
         $currentUser = Auth::requireAuth();
         $role = $currentUser['role'] ?? 'adherent';
         $coachId = $currentUser['sub'];
@@ -115,6 +99,7 @@ class AttendanceController
             return;
         }
 
+        // 2. Réceptionne le tableau des pointages `{ "attendances": [...] }`
         $data = json_decode(file_get_contents('php://input'), true);
         $attendances = $data['attendances'] ?? [];
 
@@ -124,22 +109,8 @@ class AttendanceController
             return;
         }
 
-        $db = Database::getInstance();
-
-        // Récupérer les infos complètes de la séance (pour le log)
-        $stmt = $db->query("
-            SELECT
-                s.id, s.title, s.date, s.start_time, s.end_time,
-                st.name AS type_name,
-                l.name AS location_name,
-                CONCAT(cp.first_name, ' ', cp.last_name) AS coach_name
-            FROM sessions s
-            LEFT JOIN session_types st ON st.id = s.type_id
-            LEFT JOIN locations l ON l.id = s.location_id
-            LEFT JOIN profiles cp ON cp.id = s.created_by
-            WHERE s.id = ?
-        ", [$sessionId]);
-        $session = $stmt->fetch();
+        // 3. Vérifie que la séance existe
+        $session = $this->attendance->getSessionDetails($sessionId);
 
         if (!$session) {
             http_response_code(404);
@@ -147,59 +118,25 @@ class AttendanceController
             return;
         }
 
-        $updatedCount = 0;
-        $insertedCount = 0;
-        $now = date('Y-m-d H:i:s');
-
-        foreach ($attendances as $entry) {
-            $userId  = $entry['user_id'] ?? null;
-            $attended = isset($entry['attended']) ? (bool) $entry['attended'] : false;
-
-            if (!$userId) continue;
-
-            $stmt = $db->query(
-                "SELECT id FROM registrations WHERE session_id = ? AND user_id = ?",
-                [$sessionId, $userId]
-            );
-
-            if ($stmt->fetch()) {
-                $db->query(
-                    "UPDATE registrations SET attended = ?, attended_at = ? WHERE session_id = ? AND user_id = ?",
-                    [$attended ? 1 : 0, $attended ? $now : null, $sessionId, $userId]
-                );
-                $updatedCount++;
-            } else {
-                // Walk-in
-                $db->query(
-                    "INSERT INTO registrations (session_id, user_id, attended, attended_at) VALUES (?, ?, ?, ?)",
-                    [$sessionId, $userId, $attended ? 1 : 0, $attended ? $now : null]
-                );
-                $insertedCount++;
-            }
+        // 4. Exécute le pointage en base de données et calcule le nombre de mises à jour
+        try {
+            $stats = $this->attendance->processBatchAttendance($sessionId, $attendances);
+        } catch (\Exception $dbError) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Une erreur est survenue lors du pointage']);
+            return;
         }
 
-        // ── ENREGISTREMENT DU LOG (BDD + fichier) ─────────────────────────────
+        // 5. ── ENREGISTREMENT DU LOG (BDD + FICHIER JSON LOCAL) ──────────────────
 
-        // Récupérer l'état final complet pour le snapshot
-        $stmt = $db->query("
-            SELECT
-                r.user_id,
-                r.attended,
-                r.attended_at,
-                r.created_at as registered_at,
-                p.first_name,
-                p.last_name,
-                p.email
-            FROM registrations r
-            JOIN profiles p ON p.id = r.user_id
-            WHERE r.session_id = ?
-            ORDER BY p.last_name ASC
-        ", [$sessionId]);
-        $finalState = $stmt->fetchAll();
+        // C'est vital de connaître l'état de la séance APRÈS le pointage pour les archives de logs
+        $finalStateList = $this->attendance->getSessionAttendees($sessionId);
+        
+        $attendedList = array_filter($finalStateList, fn($r) => (bool)$r['attended']);
+        $registeredList = $finalStateList;
+        $now = date('Y-m-d H:i:s');
 
-        $attendedList = array_filter($finalState, fn($r) => (bool)$r['attended']);
-        $registeredList = $finalState;
-
+        // Préparation d'une "Photo/Snapshot" de qui était présent et des conditions
         $logDetails = [
             'session_id'     => $sessionId,
             'session_title'  => $session['title'],
@@ -208,7 +145,7 @@ class AttendanceController
             'session_type'   => $session['type_name'],
             'location'       => $session['location_name'],
             'coach_name'     => $session['coach_name'],
-            'coach_id'       => $session['coach_id'] ?? null,
+            'coach_id'       => $session['created_by'] ?? null,
             'pointed_by_id'  => $coachId,
             'pointed_at'     => $now,
             'count_registered' => count($registeredList),
@@ -224,28 +161,19 @@ class AttendanceController
                 'email'        => $r['email'],
                 'attended_at'  => $r['attended_at'],
             ], $attendedList)),
-            'walk_ins_added' => $insertedCount,
+            'walk_ins_added' => $stats['inserted'], // Les adhérents surprise
         ];
 
-        // 1. Log en base de données (table logs)
-        try {
-            $db->query(
-                "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
-                [$coachId, 'attendance_saved', json_encode($logDetails, JSON_UNESCAPED_UNICODE)]
-            );
-        } catch (\Throwable $e) {
-            // Non bloquant
-            error_log('[AttendanceController] Erreur log BDD : ' . $e->getMessage());
-        }
-
-        // 2. Log fichier physique
+        // Écriture du Log de traçabilité en base de donnée et dans un fichier Backup Json
+        $this->attendance->saveLogToDatabase($coachId, $logDetails);
         $this->writeFileLog($session['date'], $sessionId, $logDetails);
 
+        // 6. Confirme la réussite au Frontend
         http_response_code(200);
         echo json_encode([
             'message'        => 'Présences mises à jour',
-            'updated'        => $updatedCount,
-            'walk_ins_added' => $insertedCount,
+            'updated'        => $stats['updated'],
+            'walk_ins_added' => $stats['inserted'],
             'count_attended' => count($attendedList),
         ]);
     }
@@ -254,8 +182,8 @@ class AttendanceController
     // GET /sessions/{sessionId}/attendance/candidates
     // =========================================================================
     /**
-     * Recherche de membres non-inscrits à la séance (pour walk-in).
-     * Paramètre GET ?q= pour filtrer (min 2 chars recommandé côté client).
+     * Recherche de membres non-inscrits à la séance (pour Walk-in).
+     * Utile si le coach a besoin de rajouter quelqu'un au bout du pinceau (via une barre de recherche).
      */
     public function getCandidates(string $sessionId): void
     {
@@ -268,31 +196,11 @@ class AttendanceController
             return;
         }
 
-        $db = Database::getInstance();
+        // On récupère la requête tapée par l'utilisateur
         $search = trim($_GET['q'] ?? '');
 
-        $sql = "
-            SELECT p.id, p.first_name, p.last_name, p.email
-            FROM profiles p
-            WHERE p.role IN ('adherent', 'coach', 'admin')
-              AND p.id NOT IN (
-                    SELECT user_id FROM registrations WHERE session_id = ?
-              )
-        ";
-        $params = [$sessionId];
-
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $sql .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ?)";
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-        }
-
-        $sql .= " ORDER BY p.last_name ASC, p.first_name ASC LIMIT 20";
-
-        $stmt = $db->query($sql, $params);
-        $candidates = $stmt->fetchAll();
+        // On demande au Repository de trouver ces personnes
+        $candidates = $this->attendance->getCandidates($sessionId, $search);
 
         http_response_code(200);
         echo json_encode(['candidates' => $candidates]);
@@ -303,8 +211,8 @@ class AttendanceController
     // =========================================================================
 
     /**
-     * Écrit un fichier JSON de log dans logs/sessions/YYYY-MM/
-     * Format : sessions-YYYY-MM-DD-{sessionId}.json
+     * Écrit un fichier JSON de sauvegarde de secours (log) dans le disque dur du serveur
+     * Format : logs/sessions/YYYY-MM/session-YYYY-MM-DD-{ID}.json
      */
     private function writeFileLog(string $sessionDate, string $sessionId, array $details): void
     {
@@ -312,16 +220,18 @@ class AttendanceController
             $month  = substr($sessionDate, 0, 7); // "YYYY-MM"
             $dir    = self::LOG_DIR . '/' . $month;
 
+            // Création automatique du dossier s'il n'existe pas
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
 
-            // Un fichier par séance (écrasé/mis à jour à chaque pointage)
+            // Un fichier par séance, s'il existe déjà il est écrasé (mis à jour) proprement
             $filename = $dir . '/session-' . $sessionDate . '-' . substr($sessionId, 0, 8) . '.json';
             $content  = json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             file_put_contents($filename, $content);
         } catch (\Throwable $e) {
-            error_log('[AttendanceController] Erreur écriture fichier log : ' . $e->getMessage());
+            error_log('[AttendanceController] Erreur écriture fichier log temp : ' . $e->getMessage());
         }
     }
 }
+
