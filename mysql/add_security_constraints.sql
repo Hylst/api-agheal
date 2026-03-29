@@ -126,7 +126,7 @@ ALTER TABLE profiles
     ADD CONSTRAINT chk_payment_status_enum
         CHECK (payment_status IN ('paid', 'pending', 'overdue')),
     ADD CONSTRAINT chk_certif_medic_future
-        CHECK (certif_medic_expiry IS NULL OR certif_medic_expiry >= '2020-01-01');
+        CHECK (medical_certificate_date IS NULL OR medical_certificate_date >= '2020-01-01');
 
 -- ────────────────────────────────────────────────────────────
 -- 4. TRIGGER : Interdire l'inscription à une séance passée
