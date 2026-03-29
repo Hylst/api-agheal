@@ -130,11 +130,13 @@ ALTER TABLE profiles
 
 -- ────────────────────────────────────────────────────────────
 -- 4. TRIGGER : Interdire l'inscription à une séance passée
+-- ⚠️ INSTRUCTIONS HEIDISQL POUR LES TRIGGERS :
+-- 1. En bas de la fenêtre HeidiSQL, ou faites clic droit > "Délimiteur"
+--    Changez le délimiteur standard ";" en "//" (ou sélectionnez // s'il est dispo)
+-- 2. Sélectionnez les lignes des de la section 4 à 7 et exécutez (F9)
 -- ────────────────────────────────────────────────────────────
 
-DELIMITER $$
-
-DROP TRIGGER IF EXISTS prevent_past_session_registration $$
+DROP TRIGGER IF EXISTS prevent_past_session_registration //
 CREATE TRIGGER prevent_past_session_registration
     BEFORE INSERT ON registrations
     FOR EACH ROW
@@ -151,13 +153,13 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Inscription refusée : la séance est déjà passée';
     END IF;
-END$$
+END //
 
 -- ────────────────────────────────────────────────────────────
 -- 5. TRIGGER : Interdire une séance dont start_time >= end_time
 -- ────────────────────────────────────────────────────────────
 
-DROP TRIGGER IF EXISTS prevent_invalid_session_times_insert $$
+DROP TRIGGER IF EXISTS prevent_invalid_session_times_insert //
 CREATE TRIGGER prevent_invalid_session_times_insert
     BEFORE INSERT ON sessions
     FOR EACH ROW
@@ -166,11 +168,9 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Heure de début doit être antérieure à l''heure de fin';
     END IF;
-    -- Tolérance : on n'empêche pas la création rétroactive par un admin
-    -- Le contrôle métier est fait côté application
-END$$
+END //
 
-DROP TRIGGER IF EXISTS prevent_invalid_session_times_update $$
+DROP TRIGGER IF EXISTS prevent_invalid_session_times_update //
 CREATE TRIGGER prevent_invalid_session_times_update
     BEFORE UPDATE ON sessions
     FOR EACH ROW
@@ -179,13 +179,13 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Heure de début doit être antérieure à l''heure de fin';
     END IF;
-END$$
+END //
 
 -- ────────────────────────────────────────────────────────────
 -- 6. TRIGGER : Interdire un payment_date dans le futur
 -- ────────────────────────────────────────────────────────────
 
-DROP TRIGGER IF EXISTS prevent_future_payment_date $$
+DROP TRIGGER IF EXISTS prevent_future_payment_date //
 CREATE TRIGGER prevent_future_payment_date
     BEFORE INSERT ON payments_history
     FOR EACH ROW
@@ -198,13 +198,13 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Le montant du règlement doit être positif';
     END IF;
-END$$
+END //
 
 -- ────────────────────────────────────────────────────────────
 -- 7. TRIGGER : date de renouvellement cohérente après date paiement
 -- ────────────────────────────────────────────────────────────
 
-DROP TRIGGER IF EXISTS payment_renewal_consistency $$
+DROP TRIGGER IF EXISTS payment_renewal_consistency //
 CREATE TRIGGER payment_renewal_consistency
     BEFORE INSERT ON payments_history
     FOR EACH ROW
@@ -213,13 +213,15 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'La date de renouvellement ne peut pas précéder la date de règlement';
     END IF;
-END$$
+END //
+
+-- ────────────────────────────────────────────────────────────
+-- N'OUBLIEZ PAS DE REMETTRE LE DÉLIMITEUR SUR ";" DANS HEIDISQL
+-- ────────────────────────────────────────────────────────────
 
 -- ────────────────────────────────────────────────────────────
 -- 8. TABLE : password_resets (version statique idempotente)
 -- ────────────────────────────────────────────────────────────
-
-DELIMITER ;
 
 CREATE TABLE IF NOT EXISTS password_resets (
     user_id    CHAR(36)     NOT NULL PRIMARY KEY,
