@@ -2,22 +2,20 @@
 namespace Tests\Repositories;
 
 use App\Repositories\SessionRepository;
-use Tests\Repositories\BaseRepositoryTest;
+use Tests\Support\RepositoryTestCase;
 
-class SessionRepositoryTest extends BaseRepositoryTest
+class SessionRepositoryTest extends RepositoryTestCase
 {
-    private SessionRepository $repository;
-
     protected function setUp(): void
     {
         parent::setUp();
-        // On instancie le repository en mode isolée (via l'injection de dépendances si on l'avait configuré ou via mock PDO)
-        // Dans une refonte avancée, le db sera injecté.
+        // On instancie le repository en mode isolé (injection de dépendances ou mock PDO)
+        // Dans une refonte avancée, la Database sera injectée via constructor.
     }
 
-    public function testGetSessionById()
+    public function testGetSessionById(): void
     {
-        // Exemple basique de l'architecture d'un test
+        // Exemple basique confirmant que l'architecture PHPUnit est opérationnelle.
         $this->assertTrue(true, "L'architecture PHPUnit est prête.");
     }
 }

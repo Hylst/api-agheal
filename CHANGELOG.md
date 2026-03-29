@@ -1,5 +1,17 @@
 # Changelog - API AGHeal
 
+## [1.9.3] - 30 Mars 2026
+
+### 🧪 Tests & Qualité
+- **`phpunit.xml`** : Schéma XSD mis à jour de `10.5` → `13.0` pour correspondre à PHPUnit 13 installé (élimine le warning de dépréciation).
+- **`tests/Repositories/BaseRepositoryTest`** : Classe rendue `abstract` — élimine le warning "No tests found in class" de PHPUnit.
+- **`README.md`** : Mis à jour vers la version 1.9.2, ajout de la section Repositories complète et de la section Tests.
+
+### 🔐 Sécurité
+- **`firebase/php-jwt`** : Confirmé en `v7.0.4` (CVE-2025-45769 corrigée — affecte `<7.0.0` uniquement). `composer audit` : aucune vulnérabilité détectée.
+
+---
+
 ## [1.9.2] - 28 Mars 2026
 
 ### 🏗️ Refactoring & Séparation des Responsabilités (4 phases)

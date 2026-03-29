@@ -13,6 +13,10 @@
 /tmp/
 /cache/
 
+# Tests — artéfacts locaux
+phpunit_output.txt
+.phpunit.cache/
+
 # Fichiers OS
 .DS_Store
 Thumbs.db

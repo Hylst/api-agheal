@@ -1,19 +1,43 @@
 # API AGHeal - Backend PHP
 
-> **Version actuelle : 1.9.1** | [Voir le CHANGELOG](./CHANGELOG.md)
+> **Version actuelle : 1.9.2** | [Voir le CHANGELOG](./CHANGELOG.md)
 
-Bienvenue sur le dépôt du backend de l'application **AGHeal**. 
+Bienvenue sur le dépôt du backend de l'application **AGHeal**.  
 Cette API est développée en PHP 8.1+ et assure la gestion de la base de données MariaDB, l'authentification JWT (Google OAuth 2.0 inclus) et la logique métier du projet.
 
 ## 👤 Auteur & Droits
-**Geoffroy Streit** - Développeur apprenant.
+**Geoffroy Streit** - Développeur apprenant.  
 *© 2026 Geoffroy Streit. Tous droits réservés. Code source propriétaire, non libre de droits.*
 
 ## 🏗️ Architecture
-- **PHP 8.1** (Apache)
+- **PHP 8.3+** (Apache)
 - **MariaDB** (Base de données)
-- **Firebase JWT** (Gestion des sessions)
+- **Firebase JWT v7+** (Gestion des sessions — CVE-2025-45769 corrigée)
 - **PHPMailer** (Envoi d'e-mails)
+- **Pattern Repository** (Couche d'accès aux données)
+
+## 🗂️ Couche Repository (`src/Repositories/`)
+
+| Classe | Responsabilité |
+|--------|----------------|
+| `BaseRepository` | Classe abstraite : PDO helpers, transactions |
+| `UserRepository` | CRUD users, rôles, OAuth upsert |
+| `ProfileRepository` | Profils, groupes, notifications |
+| `SessionRepository` | Séances — CRUD, filtrage temporel |
+| `AttendanceRepository` | Appels de présences, walk-ins, horodatage |
+| `RegistrationRepository` | Inscriptions + verrous `FOR UPDATE` (concurrence) |
+| `PaymentRepository` | Règlements, dashboard financier |
+| `StatsRepository` | Agrégations BI : KPIs, présences, démographie |
+
+## 🧪 Tests (PHPUnit)
+
+```bash
+vendor/bin/phpunit
+```
+
+- Framework : **PHPUnit 13**
+- Config : `phpunit.xml` (cible `tests/Repositories/`)
+- Infrastructure de tests préparée dans `tests/Repositories/` (mocks PDO)
 
 ## 🐳 Déploiement (Docker)
 Ce projet est configuré pour être déployé facilement via **Docker** ou **Coolify**. Le `Dockerfile` à la racine configure automatiquement :
@@ -24,7 +48,10 @@ Ce projet est configuré pour être déployé facilement via **Docker** ou **Coo
 ## 🔐 Sécurité
 - Les variables sensibles sont gérées via un fichier `.env` (non inclus dans le dépôt).
 - Les mots de passe sont hashés via `bcrypt`.
-- L'authentification est sécurisée par des tokens **JWT** (JSON Web Tokens).
+- L'authentification est sécurisée par des tokens **JWT** (JSON Web Tokens) — `firebase/php-jwt v7+`.
+- CORS configuré pour n'accepter que le domaine frontend autorisé.
+- Requêtes PDO préparées contre les injections SQL.
+- Contraintes CHECK SQL et triggers de validation sur la base de données.
 
 ## 🤖 Automatisation (CRON)
 Le système inclut un script consolidé gérant toutes les notifications asynchrones :
@@ -50,3 +77,4 @@ Le système inclut un script consolidé gérant toutes les notifications asynchr
 1. Clonez le dépôt.
 2. Configurez votre fichier `.env` à partir de `.env.example`.
 3. Lancez votre serveur PHP/Apache (WAMP ou Docker).
+4. Exécutez les scripts SQL dans l'ordre : `mysql/init.sql` → `mysql/init_trigger.sql` → `mysql/seed.sql` (local uniquement).
