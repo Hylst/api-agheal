@@ -1,5 +1,11 @@
 <?php
 // src/Repositories/RegistrationRepository.php
+//
+// Gere les inscriptions adherent <-> seance.
+// /!\ La methode registerUser() est critique : transaction + SELECT FOR UPDATE
+// pour eviter l'oversell quand 2 personnes cliquent en meme temps. Ne pas
+// toucher au FOR UPDATE.
+
 namespace App\Repositories;
 
 use App\Repositories\BaseRepository;
@@ -10,12 +16,14 @@ use PDO;
 class RegistrationRepository extends BaseRepository
 {
     /**
-     * Récupère toutes les inscriptions d'un utilisateur avec le détail des séances.
+     * Liste les inscriptions d'un user, avec details seance (titre/date/lieu/type).
+     * Utilise par la page History.
      */
     public function findUserRegistrations(string $userId): array
     {
+        // Tout en une seule requete avec jointures, plutot que N requetes.
         $sql = "
-            SELECT 
+            SELECT
                 r.id,
                 r.created_at,
                 s.id as session_id,
@@ -35,7 +43,8 @@ class RegistrationRepository extends BaseRepository
 
         $rows = $this->fetchAll($sql, [$userId]);
 
-        // Formate les données pour correspondre à la structure attendue par le frontend (identique à Supabase)
+        // On reformate en struct imbriquee pour que le front fasse
+        // registration.sessions.title directement.
         return array_map(function ($row) {
             return [
                 'id'         => $row['id'],
@@ -58,21 +67,26 @@ class RegistrationRepository extends BaseRepository
     }
 
     /**
-     * Inscrit un utilisateur à une séance avec vérification des règles de gestion en base.
-     * Les transactions garantissent que si 2 personnes cliquent en même temps, il n'y a pas de problème.
-     * Lance une Exception avec code d'erreur HTTP si une règle n'est pas respectée.
+     * Inscrit un user a une seance. Lance une Exception avec code HTTP si KO :
+     *   404 : seance introuvable / non publiee
+     *   403 : hors fenetre J-7
+     *   409 : deja inscrit OU seance complete
+     *
+     * Le verrou FOR UPDATE serialise les requetes concurrentes :
+     * sans lui, Alice et Bob peuvent passer le check "9 < 10" en parallele
+     * et finir a 11 inscrits sur 10 places. Avec lui, Bob attend le COMMIT
+     * d'Alice, relit "10 < 10" => faux => 409 propre.
      */
     public function registerUser(string $userId, string $sessionId): void
     {
         try {
-            // Démarre une transaction pour bloquer la ligne de la séance pendant la vérification
             $this->db->beginTransaction();
 
-            // 1. Récupère les infos de la séance ET VÉRROUILLE LA LIGNE (FOR UPDATE) 
-            // pour éviter que quelqu'un d'autre s'inscrive au même instant s'il ne reste qu'une place.
+            // 1. Recup seance + verrou ligne (FOR UPDATE). filtre status='published'
+            //    pour rejeter brouillon/annulee.
             $stmt = $this->db->query(
-                "SELECT id, date, limit_registration_7_days, capacity, max_people, max_people_blocking 
-                 FROM sessions 
+                "SELECT id, date, limit_registration_7_days, capacity, max_people, max_people_blocking
+                 FROM sessions
                  WHERE id = ? AND status = 'published'
                  FOR UPDATE",
                 [$sessionId]
@@ -80,66 +94,70 @@ class RegistrationRepository extends BaseRepository
             $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$session) {
-                throw new Exception('Séance introuvable ou non disponible', 404);
+                throw new Exception('Seance introuvable ou non disponible', 404);
             }
 
-            // 2. Règle métier : Vérifie la limite d'inscription à 7 jours
+            // 2. Fenetre J-7 : si limit_registration_7_days = 1, on bloque > 7j.
+            //    Utilise DateTime::diff() pour eviter les soucis de DST.
             if (!empty($session['limit_registration_7_days'])) {
                 $sessionDate = new DateTime($session['date']);
                 $now = new DateTime();
-                $now->setTime(0, 0, 0); // Comparer à partir de minuit
-                
+                $now->setTime(0, 0, 0);
+
                 $interval = $now->diff($sessionDate);
+                // invert=0 si seance future, 1 si passee. On bloque > 7j futur uniquement.
                 if ($interval->invert === 0 && $interval->days > 7) {
-                    throw new Exception('Inscription impossible à plus de 7 jours en avance', 403);
+                    throw new Exception('Inscription impossible a plus de 7 jours en avance', 403);
                 }
             }
 
-            // 3. Règle métier : Vérification des doublons (déjà inscrit ?)
+            // 3. Doublon ? UNIQUE(session_id, user_id) en BDD nous protegerait
+            //    de toute facon, mais on prefere un msg clair (409).
             $stmt = $this->db->query(
                 "SELECT id FROM registrations WHERE user_id = ? AND session_id = ?",
                 [$userId, $sessionId]
             );
             if ($stmt->rowCount() > 0) {
-                throw new Exception('Vous êtes déjà inscrit à cette séance', 409);
+                throw new Exception('Vous etes deja inscrit a cette seance', 409);
             }
 
-            // 4. Règle métier : Reste-t-il de la place ?
-            // On prend max_people, ou l'ancien champ capacity si missing
+            // 4. Reste-t-il une place ? capacity = ancien champ, garde pour
+            //    retrocompat. max_people_blocking permet une seance "souple".
             $limit = $session['max_people'] ?? $session['capacity'];
-            $isBlocking = (bool)($session['max_people_blocking'] ?? 1); // Bloquant par défaut
-            
+            $isBlocking = (bool)($session['max_people_blocking'] ?? 1);
+
             if ($limit !== null && $isBlocking) {
+                // COUNT sous le verrou de l'etape 1 => pas de race condition.
                 $stmt = $this->db->query(
                     "SELECT COUNT(*) as cnt FROM registrations WHERE session_id = ?",
                     [$sessionId]
                 );
                 $count = $stmt->fetch(PDO::FETCH_ASSOC);
-                
+
                 if ($count['cnt'] >= $limit) {
-                    throw new Exception('Cette séance est complète (limite atteinte)', 409);
+                    throw new Exception('Cette seance est complete (limite atteinte)', 409);
                 }
             }
 
-            // 5. Tout est bon, on l'inscrit !
+            // 5. OK on insert.
             $this->db->query(
                 "INSERT INTO registrations (user_id, session_id) VALUES (?, ?)",
                 [$userId, $sessionId]
             );
 
-            // On valide la transaction
             $this->db->commit();
 
         } catch (Exception $e) {
-            // En cas d'erreur (règle non respectée ou crash SQL), on annule la transaction
+            // Toute exception => rollback + relance pour que le controller
+            // la transforme en reponse HTTP.
             $this->db->rollBack();
-            // On relance l'exception pour que le contrôleur s'en charge
             throw $e;
         }
     }
 
     /**
-     * Désinscrit un utilisateur d'une séance.
+     * Desinscription. Pas besoin de transaction, DELETE est atomique.
+     * Si la ligne n'existe pas, rien ne se passe (pas d'erreur).
      */
     public function unregisterUser(string $userId, string $sessionId): void
     {

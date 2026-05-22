@@ -1,17 +1,27 @@
 <?php
 /**
  * cron_daily.php
- * Script à exécuter quotidiennement (ex: 07h00) via CRON
- * 
- * Ce script :
- * 1. Vérifie les renouvellements d'abonnements pour le lendemain et notifie les adhérents concernés.
- * 2. Liste les séances du lendemain et envoie un rappel aux adhérents inscrits.
- * 3. Envoie un récapitulatif des séances du lendemain aux coachs concernés.
+ *
+ * Lance tous les jours a 07h00 via crontab (cf bin/crontab).
+ *
+ * Boulot :
+ *   1. Rappels J-1 : envoie un email/push aux inscrits aux seances du lendemain.
+ *   2. Recap coach : envoie aux coachs/admins le planning du lendemain.
+ *   3. Rappel M-1 certificat medical : alerte les adherents dont le certif
+ *      expire dans 30 jours.
+ *   4. Rappel J-7 abonnement : alerte les adherents dont la renewal_date
+ *      arrive dans 7 jours.
+ *   5. Bascule J+1 : passe payment_status a 'en_retard' pour les adherents
+ *      dont la renewal_date est depassee.
+ *
+ * Chaque envoi respecte les preferences notify_* du profil destinataire.
+ * Tout envoi reussi est trace dans message_history.
  */
 
-// Permet l'exécution en CLI uniquement pour des raisons de sécurité (optionnel mais recommandé)
+// Securite : bloque l'execution depuis un navigateur (le script ne doit etre
+// declenche que par cron, pas par un curl externe).
 if (php_sapi_name() !== 'cli') {
-    die("Ce script ne peut être exécuté qu'en ligne de commande.");
+    die("Ce script ne peut etre execute qu'en ligne de commande.");
 }
 
 require_once __DIR__ . '/../vendor/autoload.php';

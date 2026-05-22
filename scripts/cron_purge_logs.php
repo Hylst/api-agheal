@@ -1,20 +1,29 @@
 <?php
 /**
  * cron_purge_logs.php
- * GDPR Log Rotation Script – à exécuter le 1er de chaque mois à 01h00 via CRON
- * 
- * Cronjob (Coolify / serveur) :
+ *
+ * Lance le 1er de chaque mois a 01h00 via crontab.
+ * Cronjob exact :
  *   0 1 1 * * php /var/www/html/scripts/cron_purge_logs.php >> /var/www/html/logs/purge.log 2>&1
- * 
- * Ce script :
- *  1. Détecte les données (présences + paiements) > 2 ans glissants en BDD et en fichiers JSON.
- *  2. Exporte ces données en CSV (archive).
- *  3. Envoie l'archive par e-mail à l'admin (via PHPMailer / SMTP Gmail).
- *  4. Supprime les enregistrements obsolètes en BDD et les fichiers JSON correspondants.
+ *
+ * Conformite RGPD : suppression des donnees personnelles au-dela de 2 ans glissants.
+ *
+ * Boulot :
+ *   1. Detecte les donnees > 2 ans (table logs, table payments_history,
+ *      fichiers JSON logs/sessions/YYYY-MM/)
+ *   2. Exporte en CSV (UTF-8 BOM pour Excel)
+ *   3. Envoie l'archive CSV par email a l'admin (PHPMailer / SMTP)
+ *   4. UNIQUEMENT APRES envoi confirme : DELETE en BDD + rm fichiers JSON
+ *
+ * /!\ L'ordre est strict : on n'efface JAMAIS avant d'avoir confirme l'envoi
+ * de l'archive. Si l'email plante, on garde les donnees et on retentera le
+ * mois suivant. RGPD => mieux vaut un mois de retard que des donnees perdues
+ * sans trace.
  */
 
+// Securite : execution CLI uniquement.
 if (php_sapi_name() !== 'cli') {
-    die("Ce script ne peut être exécuté qu'en ligne de commande.\n");
+    die("Ce script ne peut etre execute qu'en ligne de commande.\n");
 }
 
 require_once __DIR__ . '/../vendor/autoload.php';

@@ -1,15 +1,27 @@
 <?php
 // src/Repositories/PaymentRepository.php
+//
+// Acces aux donnees payments_history. CRUD basique + agregations pour le
+// dashboard financier (CA mensuel, repartition par mode, par coach...).
+//
+// Note : la mise a jour cascade de profiles.renewal_date / payment_status
+// apres un paiement n'est PAS dans ce repo. Elle est dans PaymentController::create()
+// qui orchestre la transaction sur les 2 tables (paiement + profil).
+// Cf BaseRepository : les transactions sont publiques pour ce cas.
+//
+// Triggers BDD associes (add_security_constraints.sql) :
+//   - amount > 0 (refus si negatif ou nul)
+//   - payment_date <= CURDATE() (refus si paiement date du futur)
+// Defense en profondeur : meme si le Sanitizer applicatif est bypasse,
+// la BDD refuse.
+
 namespace App\Repositories;
 
-/**
- * Accès aux données de la table payments_history.
- */
 class PaymentRepository extends BaseRepository
 {
     /**
-     * Retourne les règlements filtrés par critères facultatifs.
-     * @param array $filters Clés: user_id, method, received_by
+     * Liste les reglements avec filtres optionnels.
+     * @param array $filters cles supportees : user_id, method, received_by
      */
     public function findAll(array $filters = []): array
     {
@@ -47,7 +59,10 @@ class PaymentRepository extends BaseRepository
         ", $params);
     }
 
-    /** Crée un règlement. */
+    /**
+     * Cree un reglement. Les triggers BDD verifient amount > 0 et
+     * payment_date <= CURDATE() (lance une SQLException si KO).
+     */
     public function create(string $userId, float $amount, string $paymentDate,
                            ?string $method, ?string $renewalDate,
                            ?string $receivedBy, ?string $comment): void
@@ -66,7 +81,9 @@ class PaymentRepository extends BaseRepository
         $this->execute("DELETE FROM payments_history WHERE id = ?", [$id]);
     }
 
-    // ─── Agrégations pour le dashboard ──────────────────────────────────────
+    // === Agregations pour le dashboard financier ===
+    // Toutes ces methodes sont consommees par PaymentController::summary()
+    // qui appelle la route GET /payments/summary.
 
     public function totalAmount(): float
     {

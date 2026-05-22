@@ -1,37 +1,47 @@
 <?php
 // src/Repositories/SessionRepository.php
+//
+// Acces BDD pour les tables sessions et registrations.
+// Mutualise les jointures (types, lieux, inscrits) pour garder les Controllers
+// minces.
+//
+// Methodes phares :
+//   findAllWithDetails() : liste seances + jointures + inscriptions (selon contexte)
+//   createMultiple()     : insert N seances en transaction (cas duplication multi-semaines)
+//   update()             : UPDATE dynamique avec allowlist (cf controller)
+
 namespace App\Repositories;
 
 use PDO;
 use Exception;
 
-/**
- * Accès aux données de la table sessions et registrations.
- * Gère la logique complexe des requêtes pour laisser le contrôleur très clean.
- */
 class SessionRepository extends BaseRepository
 {
     /**
-     * Retourne toutes les séances, filtrées optionnellement et enrichies
-     * avec le nombre de participants ou le détail complet des inscriptions.
-     * 
-     * @param string $status  ex: 'published', 'all'
-     * @param string $include ex: 'registrations' ou ''
-     * @param string|null $currentUserId L'ID de l'utilisateur courant pour indiquer s'il est inscrit
+     * Liste les seances enrichies.
+     *
+     * @param string $status       'published' (defaut public) ou 'all' (planning coach
+     *                             qui veut voir brouillons + annulees).
+     * @param string $include      'registrations' => detail nominatif des inscrits
+     *                             (RGPD : check des droits cote controller, pas ici).
+     * @param string|null $currentUserId  Pour flagger "vous etes inscrit" dans la liste
+     *                                    publique. Null si pas connecte.
      */
     public function findAllWithDetails(string $status, string $include, ?string $currentUserId): array
     {
         $whereClause = ($status === 'all') ? '1=1' : "s.status = ?";
         $params = ($status === 'all') ? [] : [$status];
 
-        // 1. Pour la vue publique, masque complètement les séances terminées (date/heure dépassée)
+        // Vue publique : on masque les seances deja terminees, sinon les adherents
+        // voient le planning d'hier. CONCAT(date, end_time) gere bien le DST.
         if ($status !== 'all') {
             $whereClause .= " AND CONCAT(s.date, ' ', s.end_time) >= NOW()";
         }
 
-        // 2. Récupère les séances de base
+        // Seances de base + jointures sur types + lieux. LEFT JOIN car certaines
+        // anciennes seances peuvent avoir un type_id/location_id devenus NULL.
         $sql = "
-            SELECT 
+            SELECT
                 s.*,
                 st.name  as session_type_name,
                 l.name   as location_name
@@ -44,12 +54,12 @@ class SessionRepository extends BaseRepository
 
         $sessions = $this->fetchAll($sql, $params);
 
-        // 3. Récupère intelligemment les données d'inscription selon le contexte
+        // 2 requetes possibles pour les inscriptions selon le contexte appelant.
         $registrationsMap = [];
         $userRegistrations = [];
 
         if ($include === 'registrations') {
-            // Contexte Coach/Admin: On veut le détail des noms des inscrits (RGPD protected par le contrôleur)
+            // Coach/Admin : on veut les noms (cf controller pour le check role).
             $regSql = "
                 SELECT r.session_id, r.id, p.first_name, p.last_name
                 FROM registrations r
@@ -66,14 +76,15 @@ class SessionRepository extends BaseRepository
                 ];
             }
         } else {
-            // Contexte Publique: on a juste besoin du COUNT pour calculer les places restantes
+            // Vue publique : juste le COUNT pour calculer les places restantes.
+            // Pas de noms (RGPD : un adherent n'a pas a voir qui est inscrit).
             $countSql = "SELECT session_id, COUNT(*) as cnt FROM registrations GROUP BY session_id";
             $countStmt = $this->query($countSql);
             while($count = $countStmt->fetch()) {
                 $registrationsMap[$count['session_id']] = (int)$count['cnt'];
             }
-            
-            // Pour afficher le bouton "Se désinscrire" à la bonne personne
+
+            // Pour afficher "Se desinscrire" sur les seances ou l'user actuel est inscrit.
             if ($currentUserId) {
                 $userRegSql = "SELECT session_id FROM registrations WHERE user_id = ?";
                 $userRegStmt = $this->query($userRegSql, [$currentUserId]);
@@ -81,7 +92,8 @@ class SessionRepository extends BaseRepository
             }
         }
 
-        // 4. Assemble tout dans une structure de tableau formatée pour le Frontend
+        // Reformatage en structure imbriquee attendue par le front (compat historique
+        // avec l'ancien client : { session_types: {name}, locations: {name}, registrations: [...] }).
         return array_map(function ($session) use ($registrationsMap, $include, $userRegistrations) {
             $session['session_types'] = $session['session_type_name']
                 ? ['name' => $session['session_type_name']]
@@ -89,30 +101,32 @@ class SessionRepository extends BaseRepository
             $session['locations'] = $session['location_name']
                 ? ['name' => $session['location_name']]
                 : null;
-            
+
             $isRegistered = in_array($session['id'], $userRegistrations);
 
             if ($include === 'registrations') {
                 $session['registrations'] = $registrationsMap[$session['id']] ?? [];
             } else {
-                // Compte sécurisé des inscriptions
-                $count = is_int($registrationsMap[$session['id']] ?? null) 
-                    ? $registrationsMap[$session['id']] 
+                // Le map est soit int (count), soit array (detail). On gere les 2.
+                $count = is_int($registrationsMap[$session['id']] ?? null)
+                    ? $registrationsMap[$session['id']]
                     : (is_array($registrationsMap[$session['id']] ?? null) ? count($registrationsMap[$session['id']]) : 0);
-                    
+
                 $session['registrations'] = [
                     ['count' => $count, 'is_user_registered' => $isRegistered]
                 ];
             }
-            
-            // On retire les colonnes temporaires
+
+            // Clean : on retire les colonnes plates qui sont remontees dans les sous-objets.
             unset($session['session_type_name'], $session['location_name']);
             return $session;
         }, $sessions);
     }
 
     /**
-     * Insère une ou plusieurs séances en transaction "tout ou rien" (ACID).
+     * Insere N seances en transaction (tout ou rien).
+     * Utilise quand le coach duplique une seance sur plusieurs semaines : si la 5e
+     * INSERT plante, on rollback les 4 premieres. Coherence > performance.
      */
     public function createMultiple(array $sessionsPreparedData): void
     {
@@ -122,9 +136,9 @@ class SessionRepository extends BaseRepository
             foreach ($sessionsPreparedData as $data) {
                 $this->execute(
                     "INSERT INTO sessions (
-                        title, date, start_time, end_time, type_id, location_id, capacity, 
-                        min_people, max_people, min_people_blocking, max_people_blocking, 
-                        equipment_coach, equipment_clients, equipment_location, status, 
+                        title, date, start_time, end_time, type_id, location_id, capacity,
+                        min_people, max_people, min_people_blocking, max_people_blocking,
+                        equipment_coach, equipment_clients, equipment_location, status,
                         description, created_at, created_by, limit_registration_7_days
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)",
                     $data
@@ -139,7 +153,9 @@ class SessionRepository extends BaseRepository
     }
 
     /**
-     * Emails des adhérents actifs ayant activé la feature "Me notifier par email des nouvelles séances".
+     * Liste les emails des adherents actifs qui ont opt-in pour la notif
+     * "nouvelle seance ajoutee". Utilise par le cron daily.
+     * /!\ Filtre `statut_compte = actif` important : evite de notifier les desactives.
      */
     public function getNewSessionsSubscribers(): array
     {
@@ -154,13 +170,15 @@ class SessionRepository extends BaseRepository
         ")->fetchAll(PDO::FETCH_COLUMN);
     }
 
-    /** 
-     * Met à jour une séance dynamique.
+    /**
+     * UPDATE dynamique : le controller construit $updates (ex: ['title = ?', 'capacity = ?'])
+     * et $values, on assemble. L'allowlist des colonnes mutables est cote controller
+     * pour bloquer mass-assignment.
      */
     public function update(string $id, array $updates, array $values): int
     {
         if (empty($updates)) return 0;
-        
+
         $values[] = $id;
         return $this->execute(
             "UPDATE sessions SET " . implode(', ', $updates) . " WHERE id = ?",
@@ -168,8 +186,9 @@ class SessionRepository extends BaseRepository
         );
     }
 
-    /** 
-     * Supprime une séance et ses inscriptions associées. 
+    /**
+     * Supprime une seance + ses inscriptions. Pas de FK CASCADE volontaire pour
+     * garder le DELETE explicite et tracable.
      */
     public function delete(string $id): void
     {

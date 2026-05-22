@@ -1,5 +1,21 @@
 <?php
 // src/Services/PushService.php
+//
+// Service d'envoi de notifications Web Push (VAPID).
+// Wrap minishlink/web-push.
+//
+// Cle VAPID a generer une fois pour toutes (cf generate_vapid.js ou .php
+// a la racine du repo). Les 2 cles vont dans .env (publique aussi cote front).
+//
+// Conso typique :
+//   $push = new PushService();
+//   $push->sendToUser($userId, 'Rappel seance', 'Demain a 18h', '/sessions/123');
+//
+// Multi-devices : un user peut avoir N abonnements push (1 par device).
+// La methode boucle sur tous et nettoie les endpoints HTTP 410 (deads).
+//
+// Pre-requis serveur : extension PHP gmp OU bcmath (calculs crypto VAPID).
+
 namespace App\Services;
 
 use Minishlink\WebPush\WebPush;
@@ -14,13 +30,14 @@ class PushService
     {
         $auth = [
             'VAPID' => [
-                'subject' => 'mailto:geoffroy.streit.dev@gmail.com', // Peut être n'importe quelle adresse
+                // subject : URL ou mailto qui identifie l'app. Peut etre n'importe quoi
+                // de valide, c'est juste informatif pour les push services (Google FCM, etc.).
+                'subject' => 'mailto:geoffroy.streit.dev@gmail.com',
                 'publicKey' => $_ENV['VAPID_PUBLIC_KEY'] ?? '',
                 'privateKey' => $_ENV['VAPID_PRIVATE_KEY'] ?? '',
             ]
         ];
 
-        // Par défaut, l'extension gmp ou bcmath est requise par la librairie
         $this->webPush = new WebPush($auth);
     }
 

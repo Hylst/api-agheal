@@ -1,5 +1,23 @@
 <?php
 // src/Controllers/AuthController.php
+//
+// Endpoints d'auth basique : login, signup, reset-password.
+// Google OAuth est dans GoogleAuthController.php (flow separe).
+//
+// Routes :
+//   POST /auth/login          -> JWT HS256 (1h)
+//   POST /auth/signup         -> creation user (transaction users+profiles+user_roles)
+//   POST /auth/reset-password -> envoi email avec token a usage unique (1h)
+//
+// Securite cle :
+//   - password_hash() avec bcrypt par defaut (cout = 10, suffisant).
+//   - Anti-enumeration : login renvoie msg generique si email inconnu (pas de
+//     "email introuvable" qui aiderait un attaquant a lister les comptes).
+//   - reset-password renvoie toujours 200 meme si l'email n'existe pas (meme raison).
+//   - Token reset hashe en BDD (sha256) : si la BDD fuite, les tokens valides
+//     ne sont pas reutilisables.
+//   - JWT signe HS256 avec JWT_SECRET de .env (jamais commit).
+
 namespace App\Controllers;
 
 use Database;
@@ -14,10 +32,12 @@ class AuthController
 {
     /**
      * POST /auth/login
+     * Verifie email/password, renvoie JWT signe HS256 valable 1h (cf JWT_EXPIRATION env).
      */
     public function login(): void
     {
         $data = json_decode(file_get_contents('php://input'), true);
+        // Sanitize + validate email (2 etapes : nettoyage puis format).
         $email    = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
         $password = $data['password'] ?? '';
 
@@ -37,19 +57,25 @@ class AuthController
         $stmt = $db->query("SELECT * FROM users WHERE email = ?", [$email]);
         $user = $stmt->fetch();
 
+        // password_verify est SLOW BY DESIGN (bcrypt) : ralentit le brute-force.
+        // Msg d'erreur GENERIQUE : ne pas distinguer "email inconnu" de "mauvais
+        // mot de passe" (sinon un attaquant peut enumerer les comptes existants).
         if (!$user || !password_verify($password, $user['password_hash'])) {
             http_response_code(401);
             echo json_encode(['error' => 'Identifiants incorrects']);
             return;
         }
 
-        // Récupérer profil et rôles
+        // Profil + roles a inclure dans la reponse pour eviter un 2e round-trip
+        // cote front juste apres le login.
         $profile = $db->query("SELECT first_name, last_name FROM profiles WHERE id = ?", [$user['id']])->fetch()
             ?: ['first_name' => '', 'last_name' => ''];
 
         $roles = $db->query("SELECT role FROM user_roles WHERE user_id = ?", [$user['id']])->fetchAll(PDO::FETCH_COLUMN);
 
-        // Générer JWT
+        // JWT : iss/aud pour identifier emetteur/destinataire, exp pour expiration,
+        // sub = user id (subject standard JWT), roles dans le payload pour eviter
+        // une requete BDD a chaque check de role cote serveur.
         $secret = $_ENV['JWT_SECRET'] ?? 'default_secret_change_me';
         $now    = time();
         $payload = [
@@ -79,12 +105,15 @@ class AuthController
 
     /**
      * POST /auth/signup
+     * Cree user + profile + role 'adherent' en 1 transaction (tout ou rien).
      */
     public function signup(): void
     {
         $data      = json_decode(file_get_contents('php://input'), true);
         $email     = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
         $password  = $data['password'] ?? '';
+        // strip_tags + htmlspecialchars : double protection XSS sur les noms.
+        // Accepte les sous-objets `data.first_name` pour compat avec ancien front.
         $firstName = htmlspecialchars(strip_tags($data['first_name'] ?? $data['data']['first_name'] ?? ''), ENT_QUOTES, 'UTF-8');
         $lastName  = htmlspecialchars(strip_tags($data['last_name']  ?? $data['data']['last_name']  ?? ''), ENT_QUOTES, 'UTF-8');
 
@@ -100,6 +129,8 @@ class AuthController
             return;
         }
 
+        // /!\ Regle 8 chars mini cote serveur, le front impose en plus 1 maj/min/chiffre.
+        // Cf docs/securite/password_policy.md.
         if (strlen($password) < 8) {
             http_response_code(400);
             echo json_encode(['error' => 'Le mot de passe doit contenir au moins 8 caractères']);
@@ -108,7 +139,8 @@ class AuthController
 
         $db = Database::getInstance();
 
-        // Vérifier email unique
+        // Verifier email unique. On renvoie 409 explicite ici (pas anti-enumeration)
+        // car l'user veut savoir que son email est deja pris (UX > paranoia signup).
         $existing = $db->query("SELECT id FROM users WHERE email = ?", [$email])->fetch();
         if ($existing) {
             http_response_code(409);
@@ -116,7 +148,8 @@ class AuthController
             return;
         }
 
-        // Générer un UUID v4
+        // UUID v4 fait main (pas d'extension uuid en stock partout). Le PDO Singleton
+        // expose pas de helper, on inline. Cf RFC 4122 : nibble 13 = 4, nibble 17 = 8-b.
         $id   = sprintf(
             '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
             mt_rand(0, 0xffff), mt_rand(0, 0xffff),
@@ -135,11 +168,14 @@ class AuthController
                 [$id, $email, $hash]
             );
 
+            // REPLACE INTO : idempotent si profile existe deja (cas Google OAuth
+            // qui a pu creer une coquille avant). PK = id donc pas de double.
             $db->query(
                 "REPLACE INTO profiles (id, first_name, last_name, statut_compte, updated_at) VALUES (?, ?, ?, 'actif', NOW())",
                 [$id, $firstName, $lastName]
             );
 
+            // Role par defaut : adherent. Un admin pourra le passer coach plus tard.
             $db->query(
                 "REPLACE INTO user_roles (user_id, role) VALUES (?, 'adherent')",
                 [$id]
@@ -151,6 +187,8 @@ class AuthController
             echo json_encode(['message' => 'Compte créé avec succès', 'id' => $id]);
         } catch (Exception $e) {
             $db->rollBack();
+            // /!\ On log l'exception cote serveur mais on renvoie un msg generique
+            // au front (pas d'info technique qui aiderait un attaquant).
             error_log('Signup Error: ' . $e->getMessage());
             http_response_code(500);
             echo json_encode(['error' => 'Erreur lors de la création du compte']);
@@ -159,6 +197,8 @@ class AuthController
 
     /**
      * POST /auth/reset-password
+     * Envoie un email avec un lien de reset si l'email existe.
+     * Toujours 200 cote client (anti-enumeration).
      */
     public function resetPassword(): void
     {
@@ -177,18 +217,24 @@ class AuthController
             return;
         }
 
-        // Pour la sécurité, toujours retourner 200 même si l'email n'existe pas
-        // (évite l'énumération d'emails)
+        // /!\ Anti-enumeration : on ne dit JAMAIS si l'email existe ou pas.
+        // Reponse 200 systematique avec msg neutre. Sinon un attaquant peut
+        // tester des emails pour savoir qui est inscrit.
         $db = Database::getInstance();
         $user = $db->query("SELECT id, email FROM users WHERE email = ?", [$email])->fetch();
 
         if ($user) {
-            // Générer un token sécurisé et l'enregistrer en base
-            $token     = bin2hex(random_bytes(32)); // 64 chars, cryptographiquement aléatoire
+            // Token crypto-secure 32 bytes hex = 64 chars. random_bytes() vs mt_rand :
+            // ici on PEUT pas se permettre du pseudo-aleatoire, c'est la cle de reset.
+            $token     = bin2hex(random_bytes(32));
+            // On stocke le HASH du token, pas le token clair. Si la BDD fuite, les
+            // tokens valides ne sont pas exploitables.
             $tokenHash = hash('sha256', $token);
-            $expiresAt = date('Y-m-d H:i:s', time() + 3600); // Valide 1h
+            $expiresAt = date('Y-m-d H:i:s', time() + 3600); // 1h
 
-            // Créer la table si elle n'existe pas encore (guard de robustesse)
+            // CREATE TABLE IF NOT EXISTS : garde de robustesse au cas ou la migration
+            // n'a pas tourne. PK = user_id donc 1 token actif max par user (le
+            // REPLACE plus bas ecrase l'ancien). TODO : sortir ce CREATE en migration.
             $db->query("
                 CREATE TABLE IF NOT EXISTS password_resets (
                     user_id   CHAR(36)     NOT NULL PRIMARY KEY,
@@ -198,21 +244,23 @@ class AuthController
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             ");
 
-            // Upsert (1 token à la fois par utilisateur)
             $db->query(
                 "REPLACE INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)",
                 [$user['id'], $tokenHash, $expiresAt]
             );
 
-            // Construire le lien de reset
+            // Le lien contient le TOKEN CLAIR (pas le hash). C'est ce que recevra
+            // l'user dans son email. Au moment du POST /auth/confirm-reset,
+            // on hashera le token recu et on comparera au hash en BDD.
             $frontendUrl = rtrim($_ENV['FRONTEND_URL'] ?? 'https://agheal.hylst.fr', '/');
             $resetLink   = "{$frontendUrl}/reset-password?token={$token}&email=" . urlencode($email);
 
-            // Envoyer l'email via MailerService
             try {
                 $mailer = new \App\Services\MailerService();
                 $mailer->sendPasswordReset($email, $resetLink);
             } catch (Exception $eMailer) {
+                // Si l'envoi mail plante, on log mais on continue : on renverra quand
+                // meme 200 cote client (toujours anti-enumeration).
                 error_log("Password reset mailer error: " . $eMailer->getMessage());
             }
         }

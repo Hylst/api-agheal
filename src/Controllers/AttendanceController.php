@@ -1,24 +1,31 @@
 <?php
 // src/Controllers/AttendanceController.php
+//
+// Pointage des presences. Utilise par le coach pendant la seance (souvent
+// telephone a la main) pour cocher les presents, ajouter un walk-in, et
+// sauvegarder l'appel a la fin.
+//
+// Specificite : la sauvegarde finale ecrit le log a 2 endroits :
+//   1) ligne dans table logs (BDD, requetable)
+//   2) fichier JSON sur disque (logs/sessions/YYYY-MM/)
+// Choix volontaire : redondance simple pour fiabilite audit (litige adherent,
+// ou si la BDD se corrompt on a encore le fichier).
+
 namespace App\Controllers;
 
 use Auth;
 use App\Repositories\AttendanceRepository;
 
-/**
- * Contrôleur en charge de la gestion des présences (Pointage des séances).
- * Il ne gère pas la base de données directement : il utilise AttendanceRepository (Single Responsibility).
- */
 class AttendanceController
 {
-    /** Répertoire local de stockage des logs de la séance en JSON */
+    /** Dossier racine des logs JSON sur disque. */
     private const LOG_DIR = __DIR__ . '/../../logs/sessions';
 
     private AttendanceRepository $attendance;
 
     public function __construct()
     {
-        // Instanciation du repository qui s'occupe de la communication avec MySQL
+        // Toute la logique SQL est dans le Repo (pattern habituel, cf STRUCTURE.md).
         $this->attendance = new AttendanceRepository();
     }
 
@@ -26,36 +33,31 @@ class AttendanceController
     // GET /sessions/{sessionId}/attendance
     // =========================================================================
     /**
-     * Retourne la liste des inscrits + statut de présence pour une séance.
-     * Inclut les infos complètes de la séance (et de son coach créateur).
-     * Accès sécurisé : limité au profil "coach" ou "admin".
+     * Liste inscrits + statut presence d'une seance. Au chargement de l'ecran.
+     * Reserve coach/admin (un adherent n'a pas a voir qui est inscrit).
      */
     public function getAttendance(string $sessionId): void
     {
-        // 1. Règle de sécurité (Seuls Coachs et Admins peuvent voir le pointage)
         $currentUser = Auth::requireAuth();
         $role = $currentUser['role'] ?? 'adherent';
 
         if (!in_array($role, ['coach', 'admin'])) {
             http_response_code(403);
-            echo json_encode(['error' => 'Accès refusé']);
+            echo json_encode(['error' => 'Acces refuse']);
             return;
         }
 
-        // 2. On utilise le Repository pour récupérer les infos de la séance
         $session = $this->attendance->getSessionDetails($sessionId);
 
-        // Si la séance n'existe pas, ou erreur d'ID -> 404 Not Found
         if (!$session) {
             http_response_code(404);
-            echo json_encode(['error' => 'Séance introuvable']);
+            echo json_encode(['error' => 'Seance introuvable']);
             return;
         }
 
-        // 3. On demande au Repository la liste complète des inscrits et leur présence
         $rows = $this->attendance->getSessionAttendees($sessionId);
 
-        // 4. On prépare la donnée pour qu'elle soit facilement utilisable en React/Frontend
+        // attended est un TINYINT(1) en BDD, on le passe en bool pour le front.
         $attendees = array_map(fn($row) => [
             'registration_id' => $row['registration_id'],
             'user_id'         => $row['user_id'],
@@ -68,7 +70,6 @@ class AttendanceController
             'is_walk_in'      => false,
         ], $rows);
 
-        // 5. On renvoie le tout avec un code 200 (Succès)
         http_response_code(200);
         echo json_encode([
             'session'          => $session,
@@ -82,61 +83,61 @@ class AttendanceController
     // PUT /sessions/{sessionId}/attendance
     // =========================================================================
     /**
-     * Met à jour le statut de présence en lot (Batch).
-     * S'il y a un ajout de dernière minute (Walk-in), la DB l'enregistre à la volée.
-     * Génère des journaux d'événements (logs) de sécurité.
+     * Sauvegarde finale du pointage. 3 etapes :
+     *   1) UPDATE batch sur registrations (presents + walk-ins)
+     *   2) INSERT ligne d'audit dans logs
+     *   3) Ecriture fichier JSON miroir sur disque (cf entete fichier)
      */
     public function updateAttendance(string $sessionId): void
     {
-        // 1. Vérifie si tu as le droit de pointer
         $currentUser = Auth::requireAuth();
         $role = $currentUser['role'] ?? 'adherent';
         $coachId = $currentUser['sub'];
 
         if (!in_array($role, ['coach', 'admin'])) {
             http_response_code(403);
-            echo json_encode(['error' => 'Accès refusé']);
+            echo json_encode(['error' => 'Acces refuse']);
             return;
         }
 
-        // 2. Réceptionne le tableau des pointages `{ "attendances": [...] }`
+        // Payload attendu : { attendances: [{registration_id, attended}, ...] }
+        // walk-ins = registration_id null + user_id present.
         $data = json_decode(file_get_contents('php://input'), true);
         $attendances = $data['attendances'] ?? [];
 
         if (empty($attendances) || !is_array($attendances)) {
             http_response_code(422);
-            echo json_encode(['error' => 'Le champ "attendances" est requis et doit être un tableau']);
+            echo json_encode(['error' => 'Le champ "attendances" est requis et doit etre un tableau']);
             return;
         }
 
-        // 3. Vérifie que la séance existe
         $session = $this->attendance->getSessionDetails($sessionId);
 
         if (!$session) {
             http_response_code(404);
-            echo json_encode(['error' => 'Séance introuvable']);
+            echo json_encode(['error' => 'Seance introuvable']);
             return;
         }
 
-        // 4. Exécute le pointage en base de données et calcule le nombre de mises à jour
         try {
             $stats = $this->attendance->processBatchAttendance($sessionId, $attendances);
         } catch (\Exception $dbError) {
+            // On ne fuite pas l'erreur SQL au client. Detail dans error_log serveur.
             http_response_code(500);
             echo json_encode(['error' => 'Une erreur est survenue lors du pointage']);
             return;
         }
 
-        // 5. ── ENREGISTREMENT DU LOG (BDD + FICHIER JSON LOCAL) ──────────────────
-
-        // C'est vital de connaître l'état de la séance APRÈS le pointage pour les archives de logs
+        // === DOUBLE-LOG : on snapshot l'etat FINAL apres pointage ============
+        // On relit depuis la BDD plutot que de se baser sur le payload client
+        // (qui peut etre incomplet).
         $finalStateList = $this->attendance->getSessionAttendees($sessionId);
-        
-        $attendedList = array_filter($finalStateList, fn($r) => (bool)$r['attended']);
+
+        $attendedList   = array_filter($finalStateList, fn($r) => (bool)$r['attended']);
         $registeredList = $finalStateList;
         $now = date('Y-m-d H:i:s');
 
-        // Préparation d'une "Photo/Snapshot" de qui était présent et des conditions
+        // Snapshot complet : seance + qui etait inscrit / present + qui a pointe.
         $logDetails = [
             'session_id'     => $sessionId,
             'session_title'  => $session['title'],
@@ -146,7 +147,7 @@ class AttendanceController
             'location'       => $session['location_name'],
             'coach_name'     => $session['coach_name'],
             'coach_id'       => $session['created_by'] ?? null,
-            'pointed_by_id'  => $coachId,
+            'pointed_by_id'  => $coachId, // peut differer du coach createur
             'pointed_at'     => $now,
             'count_registered' => count($registeredList),
             'count_attended'   => count($attendedList),
@@ -161,17 +162,20 @@ class AttendanceController
                 'email'        => $r['email'],
                 'attended_at'  => $r['attended_at'],
             ], $attendedList)),
-            'walk_ins_added' => $stats['inserted'], // Les adhérents surprise
+            'walk_ins_added' => $stats['inserted'],
         ];
 
-        // Écriture du Log de traçabilité en base de donnée et dans un fichier Backup Json
+        // Copie 1 : BDD (table logs, auditable depuis Stats)
         $this->attendance->saveLogToDatabase($coachId, $logDetails);
+
+        // Copie 2 : fichier disque (resilience hors-BDD).
+        // Si KO, on log en interne mais on ne casse pas la reponse user :
+        // la BDD est deja a jour.
         $this->writeFileLog($session['date'], $sessionId, $logDetails);
 
-        // 6. Confirme la réussite au Frontend
         http_response_code(200);
         echo json_encode([
-            'message'        => 'Présences mises à jour',
+            'message'        => 'Presences mises a jour',
             'updated'        => $stats['updated'],
             'walk_ins_added' => $stats['inserted'],
             'count_attended' => count($attendedList),
@@ -182,8 +186,7 @@ class AttendanceController
     // GET /sessions/{sessionId}/attendance/candidates
     // =========================================================================
     /**
-     * Recherche de membres non-inscrits à la séance (pour Walk-in).
-     * Utile si le coach a besoin de rajouter quelqu'un au bout du pinceau (via une barre de recherche).
+     * Recherche adherents non encore inscrits, pour la barre walk-in.
      */
     public function getCandidates(string $sessionId): void
     {
@@ -192,14 +195,11 @@ class AttendanceController
 
         if (!in_array($role, ['coach', 'admin'])) {
             http_response_code(403);
-            echo json_encode(['error' => 'Accès refusé']);
+            echo json_encode(['error' => 'Acces refuse']);
             return;
         }
 
-        // On récupère la requête tapée par l'utilisateur
         $search = trim($_GET['q'] ?? '');
-
-        // On demande au Repository de trouver ces personnes
         $candidates = $this->attendance->getCandidates($sessionId, $search);
 
         http_response_code(200);
@@ -207,31 +207,36 @@ class AttendanceController
     }
 
     // =========================================================================
-    // Helpers
+    // Helpers prives
     // =========================================================================
 
     /**
-     * Écrit un fichier JSON de sauvegarde de secours (log) dans le disque dur du serveur
-     * Format : logs/sessions/YYYY-MM/session-YYYY-MM-DD-{ID}.json
+     * Ecrit le snapshot du pointage en fichier JSON local.
+     * Chemin : logs/sessions/YYYY-MM/session-YYYY-MM-DD-{first8uuid}.json
+     *
+     * Cree le dossier si besoin. Si le fichier existe deja (rare : rejeu),
+     * il est ecrase proprement. Encodage : JSON pretty-print UTF-8 pour
+     * pouvoir l'ouvrir dans un editeur via SSH au besoin.
      */
     private function writeFileLog(string $sessionDate, string $sessionId, array $details): void
     {
         try {
-            $month  = substr($sessionDate, 0, 7); // "YYYY-MM"
-            $dir    = self::LOG_DIR . '/' . $month;
+            $month = substr($sessionDate, 0, 7); // "YYYY-MM"
+            $dir   = self::LOG_DIR . '/' . $month;
 
-            // Création automatique du dossier s'il n'existe pas
             if (!is_dir($dir)) {
+                // 0755 : lisible tous, ecrit user PHP uniquement. recursive=true
+                // pour creer aussi "sessions" si on part de zero.
                 mkdir($dir, 0755, true);
             }
 
-            // Un fichier par séance, s'il existe déjà il est écrasé (mis à jour) proprement
             $filename = $dir . '/session-' . $sessionDate . '-' . substr($sessionId, 0, 8) . '.json';
             $content  = json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             file_put_contents($filename, $content);
         } catch (\Throwable $e) {
-            error_log('[AttendanceController] Erreur écriture fichier log temp : ' . $e->getMessage());
+            // KO ecriture fichier => on n'interrompt pas la reponse HTTP.
+            // BDD deja a jour, on log juste en interne.
+            error_log('[AttendanceController] Erreur ecriture fichier log : ' . $e->getMessage());
         }
     }
 }
-

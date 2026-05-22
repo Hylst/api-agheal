@@ -1,4 +1,21 @@
 <?php
+// src/Services/MailerService.php
+//
+// Service centralise pour les envois d'email. Wrap PHPMailer SMTP.
+// Une seule entree de config (env vars), une seule politique d'erreur,
+// pas de code SMTP dans les Controllers.
+//
+// Conso typique :
+//   $mailer = new MailerService();
+//   $mailer->send($to, $subject, $htmlBody);
+//
+// Config via .env :
+//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM_EMAIL, SMTP_FROM_NAME
+// Defaut : Gmail port 465 (SMTPS/SSL). Le port 587 (STARTTLS) marche aussi.
+//
+// /!\ SMTP_PASS doit etre un "App Password" Google, pas le mot de passe du compte.
+// Cf doc Google : https://support.google.com/accounts/answer/185833
+
 namespace App\Services;
 
 use PHPMailer\PHPMailer\PHPMailer;

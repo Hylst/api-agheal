@@ -1,5 +1,12 @@
 # AGHeal – Refactoring & Séparation des Responsabilités
 
+> ⚠️ **Document historique** — rédigé **avant** le refactoring de la v1.9.1 (26 mars 2026).  
+> L'état décrit ici (notamment "Repositories : Absents", priorité B sur `AuthMiddleware`, priorité C sur le pattern Repository, priorité E sur l'autoloading PSR-4) **a été traité** depuis. Voir le CHANGELOG v1.9.1 (refonte API Backend, centralisation Repositories) pour ce qui a réellement été appliqué.  
+> Les sections 3 et 4 (Traefik labels + CORS) sont en revanche encore d'actualité et restent valides.  
+> Conservé comme trace pédagogique du raisonnement de refactoring, utile pour le DDP RNCP CDA (démontrer la démarche d'amélioration continue).
+
+---
+
 ## 1. État actuel (résumé rapide)
 
 | Couche | Structure actuelle | Note |

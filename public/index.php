@@ -1,6 +1,12 @@
 <?php
 // public/index.php
-// Controllers resolved automatically via Composer PSR-4 autoload (config: composer.json)
+//
+// Front controller unique. Toutes les requetes HTTP arrivent ici.
+// Pipeline : Dotenv > CORS > Router > Dispatch controller > Reponse JSON.
+//
+// Les Controllers sont charges en PSR-4 (cf composer.json), pas de require_once
+// individuels. Seuls Database et Auth sont en classmap (pas de namespace,
+// raison historique).
 
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../src/Database.php';
@@ -8,15 +14,16 @@ require_once __DIR__ . '/../src/Auth.php';
 
 use Dotenv\Dotenv;
 
-// Charger les variables d'environnement
+// Charge le .env (DB, JWT_SECRET, SMTP, etc). createImmutable = on ne peut
+// pas les modifier en cours de route (securite : pas de mutation runtime).
 if (file_exists(__DIR__ . '/../.env')) {
     $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
     $dotenv->load();
 }
 
-// ─── CORS ────────────────────────────────────────────────────────────────────
-// ⚠ Ne jamais utiliser '*' en production avec `credentials: true`.
-// La liste des origines autorisées est complète et explicite.
+// === CORS ===
+// /!\ JAMAIS '*' en prod avec credentials:true (le navigateur refuse de toute facon
+// mais c'est encore plus propre cote serveur). Liste blanche explicite.
 $allowedOrigins = array_filter([
     'http://localhost:5173',
     'http://localhost:5174',
@@ -30,15 +37,16 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 if ($origin !== '' && in_array(rtrim($origin, '/'), $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
-    header('Vary: Origin');
+    header('Vary: Origin'); // cache HTTP : la reponse varie selon l'origine
 } elseif ($origin === '') {
-    // Appel sans origin (Postman, cron, server-to-server) : on n'envoie pas de header CORS.
-    // Les navigateurs envoient TOUJOURS Origin, donc pas de risque de fuite XSS.
-    true; // no-op conscient
+    // Pas d'Origin = appel non-navigateur (Postman, cron, curl server-to-server).
+    // On n'envoie pas de header CORS, c'est OK : les navigateurs envoient TOUJOURS
+    // Origin, donc pas de risque qu'un navigateur passe sans Origin.
+    true; // no-op explicite, evite que quelqu'un transforme ca en wildcard plus tard
 } else {
-    // Origine inconnue → refus explicite.
+    // Origin inconnue, on refuse net.
     http_response_code(403);
-    echo json_encode(['error' => 'Origine non autorisée']);
+    echo json_encode(['error' => 'Origine non autorisee']);
     exit;
 }
 
@@ -46,18 +54,20 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');
-header('Access-Control-Max-Age: 3600'); // Cache preflight 1h
+header('Access-Control-Max-Age: 3600'); // cache preflight 1h (evite OPTIONS a chaque requete)
 
-// Gérer les requêtes OPTIONS (preflight)
+// OPTIONS = preflight CORS, on renvoie 204 No Content direct.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
 
-// ─── Router ──────────────────────────────────────────────────────────────────
+// === Router ===
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Retirer le préfixe si l'API est dans un sous-dossier (développement local WAMP)
+// En dev local, WAMP sert l'API depuis un sous-dossier (ex: /agheal-api/public).
+// En prod Docker, c'est servi a la racine. On normalise pour que les routes
+// ci-dessous soient les memes des 2 cotes.
 $basePaths = ['/agheal-api/public', '/api/public', '/public'];
 foreach ($basePaths as $bp) {
     if (strpos($uri, $bp) === 0) {
@@ -71,8 +81,10 @@ if (empty($uri) || $uri === '') {
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ─── Définition des routes ───────────────────────────────────────────────────
-// Format : 'METHODE /chemin/{param}' => [ControllerClass, 'method', [params_en_ordre]]
+// === Definition des routes ===
+// Format : 'METHODE /chemin/{param}' => [ControllerClass, 'method']
+// Les {param} sont injectes dans les arguments du controller via Reflection
+// plus bas (cf section Dispatch).
 $routes = [
     // ── Auth ──────────────────────────────────────────
     'POST /auth/login'              => ['App\Controllers\AuthController',       'login'],
@@ -175,7 +187,10 @@ $routes = [
     'POST /contact'                 => ['App\Controllers\ContactController',      'send'],
 ];
 
-// ─── Dispatch ────────────────────────────────────────────────────────────────
+// === Dispatch ===
+// On parcourt $routes, on convertit chaque template en regex, on match contre l'URI.
+// Premier match gagne, on s'arrete.
+
 $handler = null;
 $routeParams = [];
 
@@ -186,12 +201,15 @@ foreach ($routes as $routeKey => $controllerAction) {
         continue;
     }
 
-    // Construire le pattern regex depuis le template de route
+    // Convertit "{id}" en groupe nomme regex "(?P<id>[^/]+)". Le [^/]+ evite
+    // qu'un parametre absorbe plusieurs segments de l'URL (ex: /users/foo/bar
+    // ne match pas /users/{id}).
     $pattern = preg_replace('/\{(\w+)\}/', '(?P<$1>[^/]+)', $routePath);
     $pattern = "@^" . $pattern . "$@D";
 
     if (preg_match($pattern, $uri, $matches)) {
         $handler = $controllerAction;
+        // On garde uniquement les groupes nommes (les indices numeriques sont des doublons).
         foreach ($matches as $key => $value) {
             if (is_string($key)) {
                 $routeParams[$key] = $value;
@@ -207,29 +225,30 @@ if (!$handler) {
     exit;
 }
 
-// ─── Invocation du contrôleur ────────────────────────────────────────────────
+// === Invocation du controller ===
 [$controllerClass, $action] = $handler;
 
 try {
     if (!class_exists($controllerClass)) {
-        throw new RuntimeException("Contrôleur introuvable : $controllerClass");
+        throw new RuntimeException("Controleur introuvable : $controllerClass");
     }
 
     $controller = new $controllerClass();
 
     if (!method_exists($controller, $action)) {
-        throw new RuntimeException("Méthode introuvable : $controllerClass::$action");
+        throw new RuntimeException("Methode introuvable : $controllerClass::$action");
     }
 
-    // Passer les paramètres de route en arguments positionnels
-    // On inspecte la signature de la méthode pour injecter dans l'ordre
+    // Injection des params de route en arguments positionnels.
+    // On inspecte la signature via Reflection : si la methode attend $sessionId,
+    // on lui passe $routeParams['sessionId']. Si typee int, on cast.
+    // Ca evite de coder en dur la liste des args pour chaque route.
     $ref = new ReflectionMethod($controller, $action);
     $params = $ref->getParameters();
     $args = [];
     foreach ($params as $param) {
         $name = $param->getName();
         if (isset($routeParams[$name])) {
-            // Cast en int si le paramètre est typé int
             $type = $param->getType();
             $args[] = ($type instanceof ReflectionNamedType && $type->getName() === 'int')
                 ? (int) $routeParams[$name]
@@ -242,6 +261,8 @@ try {
     $controller->$action(...$args);
 
 } catch (Throwable $e) {
+    // En prod : on masque file/line pour ne pas leak la structure du code.
+    // En dev (APP_ENV=development) : on renvoie tout pour faciliter le debug.
     $isDebug = (getenv('APP_ENV') ?: ($_ENV['APP_ENV'] ?? 'production')) === 'development';
     http_response_code(500);
     echo json_encode([

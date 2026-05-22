@@ -1,6 +1,16 @@
 <?php
 // src/Helpers/Sanitizer.php
-// Centralise les fonctions de nettoyage / validation des données en entrée.
+//
+// Centralise le nettoyage / validation des donnees user en entree.
+// Vitrine "codage defensif" : tout ce qui arrive du client passe par ici
+// avant d'atteindre la BDD.
+//
+// Conso typique dans un Controller :
+//   $title = Sanitizer::text($body['title'], 200);
+//   $email = Sanitizer::email($body['email']);
+//   $amount = Sanitizer::positiveDecimal($body['amount']);
+//   if ($email === null) { http 400 ... }
+
 namespace App\Helpers;
 
 use DateTime;
@@ -8,8 +18,10 @@ use DateTime;
 class Sanitizer
 {
     /**
-     * Nettoie un champ de texte libre (noms, descriptions, commentaires...).
-     * Supprime les balises HTML, échappe les entités.
+     * Texte libre (noms, commentaires, descriptions). Supprime les balises HTML
+     * + echappe les entites + trim + limite la longueur.
+     * Defense contre XSS stocke : meme si quelqu'un POSTe <script>, on stocke
+     * la version echappee, et React echappera aussi a l'affichage.
      */
     public static function text(?string $value, int $maxLength = 500): string
     {
@@ -20,7 +32,10 @@ class Sanitizer
     }
 
     /**
-     * Valide et retourne un email assaini, ou null si invalide.
+     * Email valide ou null. FILTER_SANITIZE_EMAIL vire les caracteres illegaux,
+     * FILTER_VALIDATE_EMAIL verifie le format RFC.
+     * 2 etapes obligatoires : SANITIZE seul renvoie un truc "propre" mais
+     * pas forcement valide.
      */
     public static function email(?string $value): ?string
     {
@@ -29,19 +44,16 @@ class Sanitizer
         return filter_var($sanitized, FILTER_VALIDATE_EMAIL) ? $sanitized : null;
     }
 
-    /**
-     * Valide une date au format YYYY-MM-DD.
-     */
+    /** Date au format YYYY-MM-DD, ou null. Refuse "2026-02-30" (parse OK mais resultat KO). */
     public static function date(?string $value): ?string
     {
         if (empty($value)) return null;
         $d = DateTime::createFromFormat('Y-m-d', $value);
+        // Le re-format check qu'on retombe pile sur l'entree (rejette le 30 fevrier).
         return ($d && $d->format('Y-m-d') === $value) ? $value : null;
     }
 
-    /**
-     * Valide une heure au format HH:MM ou HH:MM:SS.
-     */
+    /** Heure HH:MM ou HH:MM:SS. Regex simple. */
     public static function time(?string $value): ?string
     {
         if (empty($value)) return null;
@@ -52,16 +64,15 @@ class Sanitizer
     }
 
     /**
-     * Valide qu'une valeur est dans une liste autorisée (enum).
+     * Valeur dans une liste autorisee (enum applicatif).
+     * ex: Sanitizer::enum($status, ['draft', 'published', 'cancelled']);
      */
     public static function enum(?string $value, array $allowed): ?string
     {
         return in_array($value, $allowed, true) ? $value : null;
     }
 
-    /**
-     * Valide et cast un entier dans une plage optionnelle.
-     */
+    /** Entier dans une plage optionnelle. Null si non parsable ou hors plage. */
     public static function integer($value, int $min = PHP_INT_MIN, int $max = PHP_INT_MAX): ?int
     {
         $int = filter_var($value, FILTER_VALIDATE_INT);
@@ -70,7 +81,8 @@ class Sanitizer
     }
 
     /**
-     * Valide un décimal positif (ex: montant paiement).
+     * Decimal positif a 2 chiffres apres la virgule (ex: montant paiement).
+     * Le trigger BDD verifiera aussi amount > 0 (defense en profondeur).
      */
     public static function positiveDecimal($value): ?float
     {

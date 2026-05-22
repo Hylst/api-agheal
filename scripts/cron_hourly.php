@@ -1,17 +1,24 @@
 <?php
 /**
  * cron_hourly.php
- * Script à exécuter fréquemment (ex: toutes les heures, ou toutes les 15 minutes) via CRON
- * 
- * Ce script :
- * 1. Lit les campagnes d'e-mails (table `email_campaigns`) dont le statut est 'pending'
- *    et dont la date de planification `scheduled_at` est passée (<= NOW()).
- * 2. Envoie les emails aux cibles concernées via MailerService.
- * 3. Met à jour le statut à 'sent' (ou 'failed').
+ *
+ * Lance toutes les heures via crontab (cf bin/crontab).
+ * Consommateur de la file d'attente email_campaigns.
+ *
+ * Boulot :
+ *   1. SELECT email_campaigns WHERE status='pending' AND scheduled_at <= NOW()
+ *   2. Pour chaque campagne, recupere les destinataires (selon target_type/target_id)
+ *   3. Envoie les emails via MailerService (PHPMailer SMTP)
+ *   4. Bascule status = 'sent' (ou 'failed' si au moins un envoi a echoue)
+ *   5. Insert dans message_history pour audit immuable
+ *
+ * Limite LIMIT 50 par execution pour eviter un job qui boucle indefiniment
+ * si la file s'accumule (ex: SMTP down pendant une journee).
  */
 
+// Securite : execution CLI uniquement (cf cron_daily.php).
 if (php_sapi_name() !== 'cli') {
-    die("Ce script ne peut être exécuté qu'en ligne de commande.");
+    die("Ce script ne peut etre execute qu'en ligne de commande.");
 }
 
 require_once __DIR__ . '/../vendor/autoload.php';
