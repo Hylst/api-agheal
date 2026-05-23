@@ -90,6 +90,7 @@ $routes = [
     'POST /auth/login'              => ['App\Controllers\AuthController',       'login'],
     'POST /auth/signup'             => ['App\Controllers\AuthController',       'signup'],
     'POST /auth/reset-password'     => ['App\Controllers\AuthController',       'resetPassword'],
+    'POST /auth/refresh'            => ['App\Controllers\AuthController',       'refresh'],
     'GET /auth/google'              => ['App\Controllers\GoogleAuthController', 'redirect'],
     'GET /auth/google/callback'     => ['App\Controllers\GoogleAuthController', 'callback'],
 

@@ -1,13 +1,14 @@
 <?php
 // src/Controllers/AuthController.php
 //
-// Endpoints d'auth basique : login, signup, reset-password.
+// Endpoints d'auth basique : login, signup, reset-password, refresh.
 // Google OAuth est dans GoogleAuthController.php (flow separe).
 //
 // Routes :
-//   POST /auth/login          -> JWT HS256 (1h)
+//   POST /auth/login          -> access_token JWT HS256 (1h) + refresh_token (30j)
 //   POST /auth/signup         -> creation user (transaction users+profiles+user_roles)
 //   POST /auth/reset-password -> envoi email avec token a usage unique (1h)
+//   POST /auth/refresh        -> rotation du refresh_token + nouveau access_token
 //
 // Securite cle :
 //   - password_hash() avec bcrypt par defaut (cout = 10, suffisant).
@@ -16,6 +17,8 @@
 //   - reset-password renvoie toujours 200 meme si l'email n'existe pas (meme raison).
 //   - Token reset hashe en BDD (sha256) : si la BDD fuite, les tokens valides
 //     ne sont pas reutilisables.
+//   - Refresh tokens : 32 bytes random, stockes hashes sha256, rotation systematique
+//     a chaque /refresh (anti-replay).
 //   - JWT signe HS256 avec JWT_SECRET de .env (jamais commit).
 
 namespace App\Controllers;
@@ -23,6 +26,7 @@ namespace App\Controllers;
 use Database;
 use Auth;
 use App\Helpers\Sanitizer;
+use App\Repositories\RefreshTokenRepository;
 use App\Services\MailerService;
 use Firebase\JWT\JWT;
 use PDO;
@@ -73,6 +77,93 @@ class AuthController
 
         $roles = $db->query("SELECT role FROM user_roles WHERE user_id = ?", [$user['id']])->fetchAll(PDO::FETCH_COLUMN);
 
+        // Emet le couple access + refresh. Le refresh est stocke hashe en BDD,
+        // seul le clair est renvoye au client (1 seule fois).
+        $jwt           = $this->issueJwt($user['id'], $user['email'], $roles);
+        $refreshRepo   = new RefreshTokenRepository();
+        $refresh       = $refreshRepo->issue($user['id']);
+
+        http_response_code(200);
+        echo json_encode([
+            'access_token'  => $jwt,
+            'refresh_token' => $refresh['token'],
+            'expires_at'    => $refresh['expires_at'],
+            'user' => [
+                'id'         => $user['id'],
+                'email'      => $user['email'],
+                'first_name' => $profile['first_name'],
+                'last_name'  => $profile['last_name'],
+                'roles'      => $roles,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /auth/refresh
+     * Rotation du refresh_token : revoque l'ancien, emet un nouveau couple
+     * (access_token + refresh_token). Anti-replay : un meme refresh ne peut
+     * etre utilise qu'une seule fois.
+     */
+    public function refresh(): void
+    {
+        $data         = json_decode(file_get_contents('php://input'), true);
+        $clearToken   = trim((string)($data['refresh_token'] ?? ''));
+
+        if ($clearToken === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Refresh token requis']);
+            return;
+        }
+
+        $refreshRepo = new RefreshTokenRepository();
+        $tokenRow    = $refreshRepo->findValid($clearToken);
+
+        if (!$tokenRow) {
+            // Token inconnu, expire, ou deja revoque. Msg generique.
+            http_response_code(401);
+            echo json_encode(['error' => 'Refresh token invalide']);
+            return;
+        }
+
+        $db   = Database::getInstance();
+        $user = $db->query("SELECT id, email FROM users WHERE id = ?", [$tokenRow['user_id']])->fetch();
+
+        if (!$user) {
+            // L'user a ete supprime entre temps (FK CASCADE devrait avoir purge,
+            // ceinture+bretelles : on revoque quand meme et on refuse).
+            $refreshRepo->revoke($tokenRow['id']);
+            http_response_code(401);
+            echo json_encode(['error' => 'Compte introuvable']);
+            return;
+        }
+
+        $roles = $db->query(
+            "SELECT role FROM user_roles WHERE user_id = ?",
+            [$user['id']]
+        )->fetchAll(PDO::FETCH_COLUMN);
+
+        // Rotation : revoque l'ancien AVANT d'emettre le nouveau, dans le meme
+        // sens logique. Pas de transaction explicite : l'UPDATE et l'INSERT
+        // sont independants (et si l'INSERT plante, l'ancien etant revoque,
+        // le client devra se reconnecter, ce qui est acceptable).
+        $refreshRepo->revoke($tokenRow['id']);
+        $newRefresh = $refreshRepo->issue($user['id']);
+        $newJwt     = $this->issueJwt($user['id'], $user['email'], $roles);
+
+        http_response_code(200);
+        echo json_encode([
+            'access_token'  => $newJwt,
+            'refresh_token' => $newRefresh['token'],
+            'expires_at'    => $newRefresh['expires_at'],
+        ]);
+    }
+
+    /**
+     * Helper interne : signature JWT HS256 avec les claims standards.
+     * Extrait pour ne pas dupliquer entre login() et refresh().
+     */
+    private function issueJwt(string $userId, string $email, array $roles): string
+    {
         // JWT : iss/aud pour identifier emetteur/destinataire, exp pour expiration,
         // sub = user id (subject standard JWT), roles dans le payload pour eviter
         // une requete BDD a chaque check de role cote serveur.
@@ -83,24 +174,11 @@ class AuthController
             'aud'   => $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173',
             'iat'   => $now,
             'exp'   => $now + (int)($_ENV['JWT_EXPIRATION'] ?? 3600),
-            'sub'   => $user['id'],
-            'email' => $user['email'],
+            'sub'   => $userId,
+            'email' => $email,
             'roles' => $roles,
         ];
-
-        $jwt = JWT::encode($payload, $secret, 'HS256');
-
-        http_response_code(200);
-        echo json_encode([
-            'access_token' => $jwt,
-            'user' => [
-                'id'         => $user['id'],
-                'email'      => $user['email'],
-                'first_name' => $profile['first_name'],
-                'last_name'  => $profile['last_name'],
-                'roles'      => $roles,
-            ],
-        ]);
+        return JWT::encode($payload, $secret, 'HS256');
     }
 
     /**
