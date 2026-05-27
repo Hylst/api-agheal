@@ -56,6 +56,23 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Max-Age: 3600'); // cache preflight 1h (evite OPTIONS a chaque requete)
 
+// === Headers de securite ===
+// Cf guide ANSSI "Recommandations pour la securisation des sites Web" + OWASP Secure Headers.
+// Appliques ici (apres CORS, avant dispatch) : valables pour TOUTES les reponses.
+// HSTS : force HTTPS pendant 1 an sur le domaine + sous-domaines.
+header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+// X-Content-Type-Options : empeche le navigateur de "deviner" le MIME (sniffing).
+header('X-Content-Type-Options: nosniff');
+// X-Frame-Options : DENY = impossible d'embed l'API dans une iframe (anti-clickjacking).
+header('X-Frame-Options: DENY');
+// Referrer-Policy : limite les fuites d'URL vers les sites tiers.
+header('Referrer-Policy: strict-origin-when-cross-origin');
+// CSP en Report-Only le temps de mesurer les violations avant bascule en mode bloquant.
+// L'API renvoie du JSON pur, donc politique tres restrictive : aucune ressource externe utile.
+header("Content-Security-Policy-Report-Only: default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+// Permissions-Policy : desactive les API navigateur non utilisees par l'API (defense en profondeur).
+header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+
 // OPTIONS = preflight CORS, on renvoie 204 No Content direct.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
