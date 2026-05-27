@@ -27,6 +27,7 @@ use Database;
 use Auth;
 use App\Helpers\Sanitizer;
 use App\Repositories\RefreshTokenRepository;
+use App\Repositories\RateLimitRepository;
 use App\Services\MailerService;
 use Firebase\JWT\JWT;
 use PDO;
@@ -40,6 +41,23 @@ class AuthController
      */
     public function login(): void
     {
+        // Rate limiting : on resout l'IP et on verifie le blocage AVANT toute
+        // lecture BDD (sinon timing attack possible : un attaquant pourrait
+        // deduire que l'IP est bloquee a partir du temps de reponse).
+        $rateLimit = new RateLimitRepository();
+        $ip       = RateLimitRepository::resolveClientIp();
+        $endpoint = 'auth.login';
+
+        $remaining = $rateLimit->getLockRemainingSeconds($ip, $endpoint);
+        if ($remaining > 0) {
+            http_response_code(429);
+            header('Retry-After: ' . $remaining);
+            echo json_encode([
+                'error' => 'Trop de tentatives. Reessayer dans ' . (int)ceil($remaining / 60) . ' min.'
+            ]);
+            return;
+        }
+
         $data = json_decode(file_get_contents('php://input'), true);
         // Sanitize + validate email (2 etapes : nettoyage puis format).
         $email    = filter_var(trim($data['email'] ?? ''), FILTER_SANITIZE_EMAIL);
@@ -65,6 +83,7 @@ class AuthController
         // Msg d'erreur GENERIQUE : ne pas distinguer "email inconnu" de "mauvais
         // mot de passe" (sinon un attaquant peut enumerer les comptes existants).
         if (!$user || !password_verify($password, $user['password_hash'])) {
+            $rateLimit->recordAttempt($ip, $endpoint, false);
             http_response_code(401);
             echo json_encode(['error' => 'Identifiants incorrects']);
             return;
@@ -82,6 +101,9 @@ class AuthController
         $jwt           = $this->issueJwt($user['id'], $user['email'], $roles);
         $refreshRepo   = new RefreshTokenRepository();
         $refresh       = $refreshRepo->issue($user['id']);
+
+        // Trace la tentative reussie (audit + detection d'anomalies eventuelles).
+        $rateLimit->recordAttempt($ip, $endpoint, true);
 
         http_response_code(200);
         echo json_encode([
