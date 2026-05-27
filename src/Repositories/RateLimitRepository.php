@@ -20,6 +20,25 @@ class RateLimitRepository extends BaseRepository
     /** Nombre max d'echecs autorises dans la fenetre avant blocage. */
     public const MAX_FAILED_ATTEMPTS = 5;
 
+    public function __construct()
+    {
+        parent::__construct();
+        // Guard de migration : cree la table si elle n'existe pas encore.
+        // Meme pattern que password_resets dans AuthController.
+        // A retirer quand un vrai systeme de migrations sera en place.
+        $this->db->query("
+            CREATE TABLE IF NOT EXISTS rate_limit_attempts (
+                id           INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                ip_address   VARCHAR(45)   NOT NULL,
+                endpoint     VARCHAR(64)   NOT NULL,
+                attempted_at DATETIME      NOT NULL DEFAULT NOW(),
+                succeeded    TINYINT(1)    NOT NULL DEFAULT 0,
+                INDEX idx_ip_endpoint_at (ip_address, endpoint, attempted_at),
+                INDEX idx_attempted_at   (attempted_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+
     /**
      * Enregistre une tentative (reussie ou non).
      *
